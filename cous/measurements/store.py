@@ -17,8 +17,16 @@ def utc_now_iso() -> str:
 
 
 class MeasurementLocalStore:
+    """Persistência local de sessões de medição.
+
+    Thread-safe para single-threaded (uso normal do Cous).
+    NÃO suporta acesso concorrente por múltiplos processos.
+    """
+
     def __init__(self, path: Path) -> None:
         self._path = path
+        self._cache: dict[str, list[dict[str, Any]]] | None = None
+        self._dirty: bool = False
 
     def create_session(self, header: dict[str, Any]) -> dict[str, Any]:
         now = utc_now_iso()
@@ -112,16 +120,27 @@ class MeasurementLocalStore:
         return deleted
 
     def _load(self) -> dict[str, list[dict[str, Any]]]:
+        if self._cache is not None:
+            return self._cache
         if not self._path.is_file():
-            return {"sessions": []}
-        with self._path.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        sessions = data.get("sessions", [])
-        return {"sessions": sessions if isinstance(sessions, list) else []}
+            self._cache = {"sessions": []}
+        else:
+            with self._path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            sessions = data.get("sessions", [])
+            self._cache = {"sessions": sessions if isinstance(sessions, list) else []}
+        return self._cache
 
     def _save(self, data: dict[str, list[dict[str, Any]]]) -> None:
+        self._cache = data
+        self._dirty = True
+        self._flush()
+
+    def _flush(self) -> None:
+        """Regrava no disco se houver alterações pendentes."""
+        if not self._dirty or self._cache is None:
+            return
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        # Escrita atômica: arquivo temporário + fsync + os.replace
         dir_path = self._path.parent
         with tempfile.NamedTemporaryFile(
             mode="w",
@@ -132,13 +151,19 @@ class MeasurementLocalStore:
         ) as tmp:
             tmp_path = Path(tmp.name)
             try:
-                json.dump(data, tmp, ensure_ascii=True, indent=2, sort_keys=True)
+                json.dump(self._cache, tmp, ensure_ascii=True, indent=2, sort_keys=True)
                 tmp.flush()
                 os.fsync(tmp.fileno())
             except Exception:
                 tmp_path.unlink(missing_ok=True)
                 raise
         os.replace(tmp_path, self._path)
+        self._dirty = False
+
+    def invalidate_cache(self) -> None:
+        """Força releitura do disco na próxima operação. Útil para testes."""
+        self._cache = None
+        self._dirty = False
 
     def _generate_id(self) -> str:
         stamp = datetime.now(timezone.utc).strftime("med_%Y%m%d_%H%M%S")
