@@ -23,7 +23,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Cous thin client for OpenTracy")
     parser.add_argument("--mock", action="store_true", help="Reservado para clientes fake")
     parser.add_argument("--bootstrap", action="store_true", help="Reservado para bootstrap")
-    parser.add_argument("--no-runtime", action="store_true", help="Nao inicia runtime local")
     parser.add_argument("--config", type=str, default=None, help="Caminho para config.toml")
     args = parser.parse_args()
 
