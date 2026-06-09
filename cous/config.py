@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class OpenTracyConfig(BaseModel):
@@ -55,6 +55,10 @@ class MpcConfig(BaseModel):
     restart_backoff_seconds: int = 5
 
 
+class KnowledgeConfig(BaseModel):
+    poll_timeout_seconds: int = 120
+
+
 class LogsConfig(BaseModel):
     events_file: str = ".cous-data/logs/events.jsonl"
 
@@ -67,6 +71,7 @@ class Config(BaseModel):
     chat: ChatConfig = ChatConfig()
     mcp: MpcConfig = MpcConfig()
     logs: LogsConfig = LogsConfig()
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
 
 
 def load_config(path: Path | None = None) -> Config:
