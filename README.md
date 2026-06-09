@@ -156,8 +156,6 @@ Parâmetros disponíveis:
   - usa clientes fake locais para chat, knowledge e medições;
   - não exige tokens nem OpenTracy ativo;
   - útil para validar UX do terminal e fluxo local.
-- `--no-runtime`
-  - reservado; ainda não altera o comportamento.
 
 ## Sessões de chat
 
@@ -187,6 +185,14 @@ Comandos de sessão de chat:
 - `/resumo`
   - pede ao agente um resumo técnico da conversa atual;
   - salva esse resumo na própria sessão JSONL.
+- `/deletar_chat <id-ou-prefixo>`
+  - remove permanentemente uma sessão de chat do disco;
+  - exige confirmação interativa;
+  - não permite deletar a sessão ativa;
+  - reporta erro se o prefixo for ambíguo.
+- `/exportar [id]`
+  - exporta a sessão como arquivo Markdown em `.cous-data/exports/`;
+  - sem argumento, exporta a sessão atual.
 
 Resumo automático:
 
@@ -355,5 +361,4 @@ Implementado:
 
 Ainda em aberto:
 
-- `--no-runtime` continua reservado e não altera o comportamento;
 - a captura serial segue Linux-only por usar `termios`/`select`.
