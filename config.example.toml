@@ -16,5 +16,8 @@ opentracy_env_key = "OPENTRACY_KNOWLEDGE_AUTH_TOKEN"
 max_history = 10
 max_chars_before_summary = 16000
 
+[chat]
+conversations_dir = ".cous-data/conversations"
+
 [measurements]
 storage_file = ".cous-data/measurements.json"

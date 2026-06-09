@@ -112,6 +112,24 @@ def measurements_table(sessions: list[dict]) -> None:
     console.print(table)
 
 
+def chat_sessions_table(sessions: list[dict]) -> None:
+    table = Table(title="Sessoes de Chat", show_header=True)
+    table.add_column("ID", style="bold cyan")
+    table.add_column("Msgs", justify="right")
+    table.add_column("Resumo")
+    table.add_column("Atualizada")
+    table.add_column("Preview")
+    for session in sessions:
+        table.add_row(
+            str(session.get("id") or "")[:24],
+            str(session.get("messages") or 0),
+            "sim" if session.get("summary_present") else "nao",
+            str(session.get("updated_at") or "-")[:19],
+            str(session.get("preview") or "-"),
+        )
+    console.print(table)
+
+
 def measurement_detail(session: dict) -> None:
     header = session.get("header") or {}
     rows = [

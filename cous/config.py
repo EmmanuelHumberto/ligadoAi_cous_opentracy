@@ -44,11 +44,16 @@ class MeasurementsConfig(BaseModel):
     storage_file: str = ".cous-data/measurements.json"
 
 
+class ChatConfig(BaseModel):
+    conversations_dir: str = ".cous-data/conversations"
+
+
 class Config(BaseModel):
     opentracy: OpenTracyConfig = OpenTracyConfig()
     auth: AuthConfig = AuthConfig()
     memory: MemoryConfig = MemoryConfig()
     measurements: MeasurementsConfig = MeasurementsConfig()
+    chat: ChatConfig = ChatConfig()
 
 
 def load_config(path: Path | None = None) -> Config:

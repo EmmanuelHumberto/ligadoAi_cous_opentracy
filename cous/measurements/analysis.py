@@ -68,9 +68,13 @@ def summarize_session(session: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_chat_context(query: str, sessions: list[dict[str, Any]]) -> str:
-    matches = search_sessions(sessions, query, limit=3)
-    if not matches:
+    if not sessions:
         return ""
+    matches = search_sessions(sessions, query, limit=3)
+    if not matches and not _looks_like_measurement_query(query):
+        return ""
+    if not matches:
+        matches = [{"session": session, "score": 1} for session in sessions[:3]]
     blocks = []
     for item in matches:
         summary = summarize_session(item["session"])
@@ -207,6 +211,32 @@ def _session_haystack(session: dict[str, Any]) -> str:
 
 def _normalize_terms(query: str) -> list[str]:
     return [item.strip().lower() for item in query.split() if item.strip()]
+
+
+def _looks_like_measurement_query(query: str) -> bool:
+    normalized = f" {query.strip().lower()} "
+    keywords = {
+        " medicao ",
+        " medicoes ",
+        " coleta ",
+        " coletas ",
+        " laudo ",
+        " diagnostico ",
+        " maquina ",
+        " maquinas ",
+        " snapshot ",
+        " snapshots ",
+        " hall ",
+        " vibracao ",
+        " vibration ",
+        " power ",
+        " course ",
+        " rpm ",
+        " serial ",
+        " bancada ",
+        " reparo ",
+    }
+    return any(keyword in normalized for keyword in keywords)
 
 
 def _summarize_hall(snapshots: list[dict[str, Any]]) -> dict[str, Any]:

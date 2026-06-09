@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from cous.application.session import ChatSession
+from cous.application.session import ChatSession, ConversationStore
 from cous.cli import renderer
 from cous.clients.base import ClientError
 from cous.clients.knowledge import KnowledgeClient
@@ -33,6 +33,7 @@ class CommandContext:
     opentracy: OpenTracyClient
     knowledge: KnowledgeClient
     measurements: MeasurementsClient
+    conversations: ConversationStore
     session: ChatSession
 
 
@@ -88,11 +89,11 @@ def build_router() -> CommandRouter:
     router.register("laudo", _measurement_report, "Gera laudo de uma medicao", aliases=["ld"])
     router.register("capturar", _capture, "Cria sessao de medicao/coleta", aliases=["cp"])
     router.register("sincronizar", _sync_measurements, "Sincroniza medicoes com o runtime", aliases=["sync"])
-    router.register("novo", _new_session, "Inicia sessao local limpa", aliases=["n"])
+    router.register("novo", _new_session, "Cria nova sessao de chat", aliases=["n"])
     router.register("memoria", _memory, "Mostra memoria local")
-    router.register("resumo", _summary_placeholder, "Reservado para resumo via OpenTracy")
-    router.register("carregar", _load_measurement, "Mostra sessao persistida por id", aliases=["cg"])
-    router.register("listar", _measurements, "Lista sessoes persistidas", aliases=["ls"])
+    router.register("resumo", _summary_chat, "Resume a sessao de chat atual")
+    router.register("carregar", _load_chat_session, "Carrega sessao de chat por id", aliases=["cg"])
+    router.register("listar", _list_chat_sessions, "Lista sessoes de chat", aliases=["ls"])
     return router
 
 
@@ -319,7 +320,7 @@ def _search(ctx: CommandContext, args: str) -> bool:
 
 
 def _delete(ctx: CommandContext, args: str) -> bool:
-    document_id = args.strip()
+    document_id = args.strip() or _prompt("Document ID para remover")
     if not document_id:
         renderer.error("Uso: /remover <document_id>")
         return True
@@ -344,7 +345,7 @@ def _measurements(ctx: CommandContext, args: str) -> bool:
 
 
 def _measurement(ctx: CommandContext, args: str) -> bool:
-    session_id = args.strip() or _default_session_id(ctx, "medicao")
+    session_id = args.strip() or _prompt_measurement_session_id(ctx, "medicao")
     if not session_id:
         renderer.error("Uso: /medicao <id>")
         return True
@@ -356,7 +357,7 @@ def _measurement(ctx: CommandContext, args: str) -> bool:
 
 
 def _measurement_report(ctx: CommandContext, args: str) -> bool:
-    session_id = args.strip() or _default_session_id(ctx, "laudo")
+    session_id = args.strip() or _prompt_measurement_session_id(ctx, "laudo")
     if not session_id:
         renderer.error("Uso: /laudo <id>")
         return True
@@ -371,7 +372,7 @@ def _measurement_report(ctx: CommandContext, args: str) -> bool:
 
 
 def _measurement_diagnostic(ctx: CommandContext, args: str) -> bool:
-    session_id = args.strip() or _default_session_id(ctx, "diagnostico")
+    session_id = args.strip() or _prompt_measurement_session_id(ctx, "diagnostico")
     if not session_id:
         renderer.error("Uso: /diagnostico <id>")
         return True
@@ -725,24 +726,65 @@ def _is_truthy(value: object) -> bool:
 
 
 def _new_session(ctx: CommandContext, args: str) -> bool:
-    ctx.session.clear()
-    renderer.success("Sessao local limpa.")
+    ctx.session = ctx.conversations.create_session()
+    renderer.success(f"Nova sessao de chat criada: {ctx.session.session_id}")
     return True
 
 
 def _memory(ctx: CommandContext, args: str) -> bool:
-    renderer.info(f"Mensagens em memoria local: {len(ctx.session.history)}")
+    renderer.info(
+        "Sessao atual: "
+        f"{ctx.session.session_id} mensagens={len(ctx.session.history)} "
+        f"resumo={'sim' if bool(ctx.session.summary) else 'nao'}"
+    )
     return True
 
 
-def _summary_placeholder(ctx: CommandContext, args: str) -> bool:
-    renderer.info(f"Mensagens em memoria local: {len(ctx.session.history)}")
-    renderer.info(ctx.measurements.recent_summary())
+def _summary_chat(ctx: CommandContext, args: str) -> bool:
+    if not ctx.session.history:
+        renderer.info("Sessao de chat atual ainda nao tem mensagens.")
+        return True
+    try:
+        summary = build_chat_summary(ctx)
+    except ClientError as exc:
+        renderer.error(f"Falha ao resumir sessao: {exc}")
+        return True
+    ctx.session.set_summary(summary)
+    renderer.success(f"Resumo atualizado para a sessao {ctx.session.session_id}.")
+    renderer.assistant(summary)
     return True
 
 
-def _load_measurement(ctx: CommandContext, args: str) -> bool:
-    return _measurement(ctx, args)
+def _load_chat_session(ctx: CommandContext, args: str) -> bool:
+    target = args.strip() or _prompt(
+        "Sessao de chat para carregar (id, prefixo ou vazio para mais recente)"
+    )
+    try:
+        if not target:
+            latest = ctx.conversations.latest_session()
+            if latest is None:
+                renderer.info("Nenhuma sessao de chat persistida.")
+                return True
+            ctx.session = latest
+        else:
+            ctx.session = ctx.conversations.load_session(target)
+    except ValueError as exc:
+        renderer.error(str(exc))
+        return True
+    renderer.success(f"Sessao carregada: {ctx.session.session_id}")
+    renderer.info(
+        f"Mensagens={len(ctx.session.history)} resumo={'sim' if bool(ctx.session.summary) else 'nao'}"
+    )
+    return True
+
+
+def _list_chat_sessions(ctx: CommandContext, args: str) -> bool:
+    sessions = ctx.conversations.list_sessions()
+    if not sessions:
+        renderer.info("Nenhuma sessao de chat persistida.")
+        return True
+    renderer.chat_sessions_table(sessions)
+    return True
 
 
 def _sync_measurements(ctx: CommandContext, args: str) -> bool:
@@ -775,6 +817,14 @@ def _default_session_id(ctx: CommandContext, action: str) -> str:
     return session_id
 
 
+def _prompt_measurement_session_id(ctx: CommandContext, action: str) -> str:
+    session = ctx.measurements.latest_session()
+    default = str(session.get("id") or "") if session else ""
+    if default:
+        renderer.info(f"Sessao mais recente disponivel para /{action}: {default}")
+    return _prompt("ID da medicao", default)
+
+
 def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
     try:
         synced = ctx.measurements.sync_session(session_id)
@@ -785,3 +835,15 @@ def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
         "Sessao sincronizada com o backend de medicoes: "
         f"remote_id={synced.get('remote_id') or '-'}"
     )
+
+
+def build_chat_summary(ctx: CommandContext) -> str:
+    result = ctx.opentracy.chat(
+        (
+            "Resuma a conversa a seguir em portugues, de forma tecnica e curta. "
+            "Preserve decisoes, ids, comandos usados, erros observados e proximos passos."
+        ),
+        history=ctx.session.history,
+        channel="terminal_summary",
+    )
+    return str(result.get("response") or "").strip()

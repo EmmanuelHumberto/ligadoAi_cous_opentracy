@@ -13,6 +13,7 @@ from cous.clients.knowledge import KnowledgeClient
 from cous.clients.measurements import MeasurementsClient
 from cous.clients.opentracy import OpenTracyClient
 from cous.config import expand_path, load_config
+from cous.application.session import ConversationStore
 from cous.measurements.store import MeasurementLocalStore
 
 
@@ -64,8 +65,9 @@ def main() -> None:
         knowledge_token_provider,
         MeasurementLocalStore(expand_path(config.measurements.storage_file)),
     )
+    conversations = ConversationStore(expand_path(config.chat.conversations_dir))
     try:
-        run_terminal(config, opentracy, knowledge, measurements)
+        run_terminal(config, opentracy, knowledge, measurements, conversations)
     finally:
         opentracy.close()
         knowledge.close()

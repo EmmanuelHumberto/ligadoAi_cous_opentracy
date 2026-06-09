@@ -118,6 +118,30 @@ def test_client_resolves_prefix_and_recent_summary(tmp_path, monkeypatch):
     assert "freq_media=120.00Hz" in summary
 
 
+def test_chat_context_uses_recent_sessions_for_generic_measurement_query(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    session = client.create_session(
+        {
+            "fabricante": "DKLAB",
+            "modelo": "W1PRO",
+            "numero_serie": "1199",
+            "tipo_coleta": "desempenho",
+            "verticais": ["hall"],
+            "baudrate": 115200,
+            "duracao_seg": 30.0,
+        }
+    )
+    client.add_snapshots(
+        session["id"],
+        [{"type": "hall_snapshot", "timestamp_us": 1, "frequency_hz": 120}],
+    )
+
+    context = client.chat_context("voce consegue achar a coleta salva?")
+
+    assert session["id"] in context
+    assert "DKLAB" in context
+
+
 def test_client_syncs_session_to_runtime(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     session = client.create_session(

@@ -7,3 +7,6 @@ dist/
 build/
 *.egg-info/
 config.toml
+.cous-data/
+.run/
+*.backup
