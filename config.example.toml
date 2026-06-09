@@ -27,6 +27,11 @@ restart_backoff_seconds = 5
 
 [logs]
 events_file = ".cous-data/logs/events.jsonl"
+max_size_mb = 10
+backup_count = 3
 
 [measurements]
 storage_file = ".cous-data/measurements.json"
+
+[knowledge]
+poll_timeout_seconds = 120
