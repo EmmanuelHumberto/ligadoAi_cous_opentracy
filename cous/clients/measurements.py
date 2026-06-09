@@ -14,7 +14,8 @@ from cous.measurements.analysis import (
     build_recent_summary,
     filter_sessions,
 )
-from cous.measurements.serial_capture import DEFAULT_VERTICALS, normalize_snapshot_type, normalize_verticals
+from cous.measurements.constants import DEFAULT_VERTICALS
+from cous.measurements.serial_capture import normalize_snapshot_type, normalize_verticals
 from cous.measurements.store import MeasurementLocalStore
 from cous.measurements.validation import validate_header, validate_snapshots
 

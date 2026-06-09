@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from cous.measurements.serial_capture import DEFAULT_VERTICALS, normalize_snapshot_type
+from cous.measurements.constants import DEFAULT_VERTICALS
+from cous.measurements.serial_capture import normalize_snapshot_type
 
 
 def validate_header(header: dict[str, Any]) -> list[str]:

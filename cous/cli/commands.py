@@ -17,8 +17,8 @@ from cous.clients.measurements import MeasurementsClient
 from cous.clients.opentracy import OpenTracyClient
 from cous.config import Config
 from cous.logger import EventLogger
+from cous.measurements.constants import DEFAULT_VERTICALS
 from cous.measurements.serial_capture import (
-    DEFAULT_VERTICALS,
     capture_tma_snapshots,
     normalize_snapshot_type,
     normalize_verticals,
@@ -272,20 +272,33 @@ def _format_validation_errors(validation: dict[str, Any]) -> str:
 
 
 def _poll_job(ctx: CommandContext, job_id: str) -> None:
+    """Polling com backoff exponencial. Máx ~6 chamadas para jobs rápidos."""
     terminal_statuses = {"indexed", "failed", "cancelled", "skipped"}
-    for _ in range(120):
+    timeout_seconds = ctx.config.knowledge.poll_timeout_seconds
+    backoff_seconds = 1.0
+    max_backoff = 16.0
+    elapsed = 0.0
+
+    while elapsed < timeout_seconds:
         job = ctx.knowledge.get_job(job_id)
         status = str(job.get("status", "unknown"))
         stage = job.get("stage") or "-"
         renderer.info(f"job={job_id[:8]} status={status} stage={stage}")
+
         if status in terminal_statuses:
             if status == "failed":
                 error = job.get("error")
                 if error:
                     renderer.error(_format_job_error(error))
             return
-        time.sleep(1)
-    renderer.warning("Polling encerrado por timeout local; o job pode continuar no OpenTracy.")
+
+        time.sleep(backoff_seconds)
+        elapsed += backoff_seconds
+        backoff_seconds = min(backoff_seconds * 2, max_backoff)
+
+    renderer.warning(
+        f"Polling encerrado apos {timeout_seconds}s; o job pode continuar no OpenTracy."
+    )
 
 
 def _format_job_error(error: object) -> str:
