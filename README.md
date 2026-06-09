@@ -44,8 +44,8 @@ Por padrão o cliente grava dados em `.cous-data/`:
 
 - Python 3.11+
 - `uv`
-- OpenTracy backend em `http://localhost:8002`
-- OpenTracy runtime em `http://localhost:8001`
+- OpenTracy backend em `http://127.0.0.1:8002`
+- OpenTracy runtime em `http://127.0.0.1:8001`
 - token de knowledge do OpenTracy
 - token de API do agente
 
@@ -93,8 +93,8 @@ Exemplo:
 
 ```toml
 [opentracy]
-backend_url = "http://localhost:8002"
-runtime_url = "http://localhost:8001"
+backend_url = "http://127.0.0.1:8002"
+runtime_url = "http://127.0.0.1:8001"
 agent_id = "cous"
 timeout = 30
 

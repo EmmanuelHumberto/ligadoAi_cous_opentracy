@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 
 class OpenTracyConfig(BaseModel):
-    backend_url: str = "http://localhost:8002"
-    runtime_url: str = "http://localhost:8001"
+    backend_url: str = "http://127.0.0.1:8002"
+    runtime_url: str = "http://127.0.0.1:8001"
     agent_id: str = "cous"
     timeout: int = 30
+
+    @field_validator("backend_url", "runtime_url")
+    @classmethod
+    def normalize_loopback_host(cls, value: str) -> str:
+        return _normalize_loopback_url(value)
 
     @field_validator("timeout")
     @classmethod
@@ -101,3 +107,11 @@ def _read_toml(path: Path) -> dict[str, Any]:
 
     with path.open("rb") as handle:
         return tomllib.load(handle)
+
+
+def _normalize_loopback_url(value: str) -> str:
+    parts = urlsplit(value)
+    if parts.hostname != "localhost":
+        return value
+    netloc = parts.netloc.replace("localhost", "127.0.0.1", 1)
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))

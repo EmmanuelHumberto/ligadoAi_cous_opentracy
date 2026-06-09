@@ -1,6 +1,6 @@
 [opentracy]
-backend_url = "http://localhost:8002"
-runtime_url = "http://localhost:8001"
+backend_url = "http://127.0.0.1:8002"
+runtime_url = "http://127.0.0.1:8001"
 agent_id = "cous"
 timeout = 30
 
