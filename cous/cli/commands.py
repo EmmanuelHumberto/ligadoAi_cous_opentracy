@@ -100,6 +100,8 @@ def build_router() -> CommandRouter:
     router.register("resumo", _summary_chat, "Resume a sessao de chat atual")
     router.register("carregar", _load_chat_session, "Carrega sessao de chat por id", aliases=["cg"])
     router.register("listar", _list_chat_sessions, "Lista sessoes de chat", aliases=["ls"])
+    router.register("deletar_chat", _delete_chat_session, "Remove permanentemente uma sessao de chat do disco")
+    router.register("exportar", _export_chat_session, "Exporta uma sessao de chat como arquivo Markdown")
     return router
 
 
@@ -809,24 +811,127 @@ def _list_chat_sessions(ctx: CommandContext, args: str) -> bool:
     return True
 
 
+def _delete_chat_session(ctx: CommandContext, args: str) -> bool:
+    session_id = args.strip()
+    if not session_id:
+        renderer.error("Uso: /deletar_chat <id>")
+        renderer.info("Use /listar para ver os IDs disponiveis.")
+        return True
+
+    # resolve_unique reporta ambiguidade (diferente de resolve_session_id)
+    try:
+        resolved = ctx.conversations.resolve_unique(session_id)
+    except ValueError as exc:
+        renderer.error(str(exc))
+        return True
+
+    # Proteção: não permite deletar a sessão ativa
+    if resolved == ctx.session.session_id:
+        renderer.error(
+            "Nao e possivel deletar a sessao ativa. "
+            "Crie uma nova sessao com /novo antes de deletar esta."
+        )
+        return True
+
+    # Confirmação interativa
+    confirm = _prompt(f"Deletar sessao {resolved}? Esta acao e irreversivel. [s/N] ").strip().lower()
+    if confirm not in {"s", "sim"}:
+        renderer.info("Operacao cancelada.")
+        return True
+
+    deleted = ctx.conversations.delete_session(resolved)
+    if deleted:
+        ctx.logger.log("session_deleted", session_id=resolved)
+        renderer.success(f"Sessao {resolved} deletada.")
+    else:
+        renderer.error(f"Falha ao deletar sessao {resolved}.")
+    return True
+
+
+def _export_chat_session(ctx: CommandContext, args: str) -> bool:
+    parts = args.strip().split(maxsplit=1)
+    session_id = parts[0] if parts else ""
+
+    if not session_id:
+        session = ctx.session
+    else:
+        try:
+            session = ctx.conversations.load_session(session_id, event_logger=ctx.logger)
+        except ValueError as exc:
+            renderer.error(str(exc))
+            return True
+
+    output_dir = Path(".cous-data/exports")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{session.session_id}.md"
+    lines: list[str] = [
+        f"# Sessão de Chat — {session.session_id}\n",
+        f"**Criada em:** {session.created_at}  ",
+        f"**Atualizada em:** {session.updated_at}  ",
+        f"**Mensagens:** {len(session.history)}\n",
+    ]
+    if session.summary:
+        lines += ["\n## Resumo\n", session.summary, ""]
+
+    lines.append("\n## Histórico\n")
+    for message in session.history:
+        role = message.get("role", "desconhecido")
+        content = message.get("content", "")
+        label = "**Operador**" if role == "user" else "**Agente**"
+        lines += [f"\n{label}:\n", content, ""]
+
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    ctx.logger.log("session_exported", session_id=session.session_id, path=str(output_path.resolve()))
+    renderer.success(f"Sessao exportada: {output_path.resolve()}")
+    return True
+
+
 def _sync_measurements(ctx: CommandContext, args: str) -> bool:
     target = args.strip()
-    try:
-        if target:
-            synced = [ctx.measurements.sync_session(target)]
-        else:
-            synced = ctx.measurements.sync_pending_sessions()
-    except (ClientError, ValueError) as exc:
-        renderer.error(f"Falha ao sincronizar medicoes: {exc}")
-        return True
-    if not synced:
-        renderer.info("Nenhuma medicao pendente para sincronizar.")
-        return True
-    for session in synced:
+    if target:
+        try:
+            synced = ctx.measurements.sync_session(target)
+        except (ClientError, ValueError) as exc:
+            renderer.error(f"Falha ao sincronizar: {exc}")
+            return True
         renderer.success(
             "Medicao sincronizada: "
-            f"{session.get('id')} remote_id={session.get('remote_id') or '-'}"
+            f"{synced.get('id')} remote_id={synced.get('remote_id') or '-'}"
         )
+        return True
+
+    # Sync em lote com barra de progresso Rich
+    from rich.progress import (
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+        BarColumn,
+        TaskProgressColumn,
+    )
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Sincronizando sessões...", total=None)
+
+        def update_bar(current: int, total: int, description: str) -> None:
+            progress.update(task, total=total, completed=current, description=description)
+
+        try:
+            result = ctx.measurements.sync_pending_sessions(on_progress=update_bar)
+        except Exception as exc:
+            renderer.error(f"Falha ao sincronizar: {exc}")
+            return True
+
+    renderer.success(f"Sincronizadas: {result['synced_count']}")
+    if result["failed"]:
+        renderer.warning(f"Falhas ({result['failed_count']}):")
+        for failure in result["failed"]:
+            renderer.error(f"  {failure['session_id']}: {failure['error']}")
     return True
 
 

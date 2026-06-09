@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
@@ -138,15 +139,49 @@ class MeasurementsClient:
             self._store.replace_session(session)
             raise
 
-    def sync_pending_sessions(self) -> list[dict[str, Any]]:
+    def sync_pending_sessions(
+        self,
+        *,
+        on_progress: Callable[[int, int, str], None] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Sincroniza todas as sessões pendentes. Coleta falhas sem abortar o lote.
+
+        Args:
+            on_progress: Callback opcional (current, total, description).
+                         None = sem reporte de progresso.
+
+        Returns:
+            dict com synced (list), failed (list), synced_count, failed_count.
+
+        BREAKING (interno): O retorno mudou de list[dict] para dict com sumário.
+        Apenas _sync_measurements() consome este método.
+        """
+        candidates = [
+            session for session in self._store.full_sessions()
+            if str(session.get("status") or "") in {"saved", "diagnosed", "reported"}
+            and str(session.get("sync_status") or "") != "synced"
+        ]
+
         synced: list[dict[str, Any]] = []
-        for session in self._store.full_sessions():
-            if str(session.get("status") or "") not in {"saved", "diagnosed", "reported"}:
-                continue
-            if str(session.get("sync_status") or "") == "synced":
-                continue
-            synced.append(self.sync_session(str(session.get("id"))))
-        return synced
+        failed: list[dict[str, str]] = []
+        total = len(candidates)
+
+        for idx, session in enumerate(candidates):
+            session_id = str(session.get("id"))
+            if on_progress is not None:
+                on_progress(idx, total, f"Sincronizando {session_id[:12]}...")
+            try:
+                synced.append(self.sync_session(session_id))
+            except Exception as exc:
+                failed.append({"session_id": session_id, "error": str(exc)})
+
+        return {
+            "synced": synced,
+            "failed": failed,
+            "synced_count": len(synced),
+            "failed_count": len(failed),
+        }
 
     def diagnose(self, session_id: str) -> dict[str, Any]:
         session = self.get_session(session_id)
