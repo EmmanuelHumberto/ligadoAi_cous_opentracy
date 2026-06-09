@@ -234,6 +234,44 @@ class ConversationStore:
             },
         )
 
+    def delete_session(self, session_id: str) -> bool:
+        """
+        Remove permanentemente o arquivo JSONL da sessão.
+        Retorna True se deletado, False se não encontrado.
+        Usa match exato — para resolução de prefixo com detecção de
+        ambiguidade, use resolve_unique() antes.
+        """
+        path = self._session_path(session_id)
+        if path.is_file():
+            path.unlink()
+            return True
+        return False
+
+    def resolve_unique(self, value: str) -> str:
+        """
+        Resolve prefixo para ID exato. Levanta ValueError se:
+        - prefixo ambíguo (bate em múltiplas sessões)
+        - não encontrado
+        Use em operações destrutivas (delete) que exigem identificação única.
+        """
+        target = value.strip()
+        if not target:
+            raise ValueError("ID vazio.")
+        sessions = self.list_sessions()
+        exact = [s for s in sessions if str(s["id"]) == target]
+        if exact:
+            return str(exact[0]["id"])
+        prefix = [s for s in sessions if str(s["id"]).startswith(target)]
+        if len(prefix) == 1:
+            return str(prefix[0]["id"])
+        if len(prefix) > 1:
+            ids = ", ".join(str(s["id"])[:20] for s in prefix[:5])
+            raise ValueError(
+                f"Prefixo ambiguo: {len(prefix)} sessoes encontradas ({ids}...). "
+                "Use um prefixo mais especifico."
+            )
+        raise ValueError(f"Sessao nao encontrada: {target}")
+
     def reset_session(self, session_id: str, timestamp: str) -> None:
         self._append_event(
             session_id,
