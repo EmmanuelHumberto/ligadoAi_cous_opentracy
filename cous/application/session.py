@@ -173,6 +173,9 @@ class ConversationStore:
                 continue
             try:
                 entry = json.loads(line)
+                if entry.get("deleted"):
+                    sessions.pop(entry["id"], None)
+                    continue
                 sessions[entry["id"]] = entry
             except (json.JSONDecodeError, KeyError):
                 continue
@@ -187,6 +190,8 @@ class ConversationStore:
         """Primeira execução: reconstrói o índice a partir dos arquivos existentes."""
         sessions: list[dict[str, Any]] = []
         for path in sorted(self._conversations_dir.glob("*.jsonl")):
+            if path.name == "_index.jsonl":
+                continue
             try:
                 session = self.load_session(path.stem)
             except ValueError:
@@ -287,6 +292,7 @@ class ConversationStore:
         path = self._session_path(session_id)
         if path.is_file():
             path.unlink()
+            self._mark_index_deleted(session_id)
             return True
         return False
 
@@ -330,6 +336,25 @@ class ConversationStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, ensure_ascii=True) + "\n")
+
+    def _mark_index_deleted(self, session_id: str) -> None:
+        index_path = self._conversations_dir / "_index.jsonl"
+        try:
+            index_path.parent.mkdir(parents=True, exist_ok=True)
+            with index_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(
+                        {
+                            "id": session_id,
+                            "deleted": True,
+                            "updated_at": utc_now_iso(),
+                        },
+                        ensure_ascii=True,
+                    )
+                    + "\n"
+                )
+        except OSError:
+            pass
 
     def _session_path(self, session_id: str) -> Path:
         return self._conversations_dir / f"{session_id}.jsonl"

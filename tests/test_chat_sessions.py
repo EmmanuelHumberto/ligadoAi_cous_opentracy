@@ -1,8 +1,11 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 from cous.application.session import ConversationStore
-from cous.cli.commands import build_chat_summary
+from cous.cli.commands import build_chat_summary, build_router
 from cous.cli.terminal import _maybe_refresh_summary
+
+
 def test_conversation_store_persists_and_loads_sessions(tmp_path):
     store = ConversationStore(tmp_path / "conversations")
     session = store.create_session("chat_test")
@@ -101,3 +104,63 @@ def test_load_session_skips_all_corrupted_lines(tmp_path):
     )
     loaded = store.load_session(session_id)
     assert loaded.history == []
+
+
+def test_delete_session_removes_file(tmp_path):
+    store = ConversationStore(tmp_path)
+    session = store.create_session()
+    session_id = session.session_id
+
+    assert (tmp_path / f"{session_id}.jsonl").is_file()
+    assert store.delete_session(session_id) is True
+    assert not (tmp_path / f"{session_id}.jsonl").is_file()
+
+
+def test_delete_session_returns_false_if_not_found(tmp_path):
+    store = ConversationStore(tmp_path)
+
+    assert store.delete_session("nao_existe") is False
+
+
+def test_delete_session_via_resolve_unique_then_delete(tmp_path):
+    store = ConversationStore(tmp_path)
+    session = store.create_session()
+    prefix = session.session_id[:12]
+
+    resolved = store.resolve_unique(prefix)
+    deleted = store.delete_session(resolved)
+
+    assert deleted is True
+    assert not (tmp_path / f"{session.session_id}.jsonl").is_file()
+
+
+def test_export_command_writes_markdown_for_current_session(tmp_path, monkeypatch, make_context):
+    monkeypatch.chdir(tmp_path)
+    router = build_router()
+    ctx = make_context()
+    ctx.session.add("user", "ola")
+    ctx.session.add("assistant", "resposta")
+    ctx.session.set_summary("resumo tecnico")
+
+    result = router.dispatch("/exportar", ctx=ctx)
+
+    output = Path(".cous-data/exports") / f"{ctx.session.session_id}.md"
+    content = output.read_text(encoding="utf-8")
+    assert result is True
+    assert output.is_file()
+    assert "# Sessão de Chat" in content
+    assert "## Resumo" in content
+    assert "## Histórico" in content
+    assert "ola" in content
+
+
+def test_delete_chat_command_removes_non_active_session(tmp_path, monkeypatch, make_context):
+    router = build_router()
+    ctx = make_context()
+    other = ctx.conversations.create_session()
+    monkeypatch.setattr("builtins.input", lambda: "s")
+
+    result = router.dispatch(f"/deletar_chat {other.session_id}", ctx=ctx)
+
+    assert result is True
+    assert ctx.conversations.resolve_session_id(other.session_id) is None

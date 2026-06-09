@@ -89,6 +89,9 @@ Depois do bootstrap, reinicie o runtime do OpenTracy.
 
 O cliente procura `config.toml` no diretório atual ou na raiz do repositório.
 
+Copie `config.example.toml` para `config.toml` e ajuste os valores conforme o
+seu ambiente.
+
 Exemplo:
 
 ```toml
@@ -156,6 +159,26 @@ Parâmetros disponíveis:
   - usa clientes fake locais para chat, knowledge e medições;
   - não exige tokens nem OpenTracy ativo;
   - útil para validar UX do terminal e fluxo local.
+
+## Testes
+
+Execução padrão:
+
+```bash
+uv run pytest
+```
+
+Testes de integração do terminal:
+
+```bash
+uv run pytest -m terminal -s
+```
+
+Em CI headless, exclua os testes marcados como `terminal`:
+
+```bash
+uv run pytest -m "not terminal"
+```
 
 ## Sessões de chat
 
