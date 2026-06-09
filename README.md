@@ -341,18 +341,19 @@ Rodar a suíte local do Cous:
 Implementado:
 
 - autenticação com dois tokens;
-- bootstrap do token de knowledge;
+- bootstrap do token de knowledge, do token de medições e do canal API do agente;
+- `--mock` com clientes fake locais;
 - store local de medições;
 - sincronização para o runtime remoto de medições;
 - diagnóstico e laudo com preferência por backend remoto;
 - sessões de chat persistidas em JSONL;
 - `/novo`, `/listar`, `/carregar` para chat;
 - `/resumo` manual;
-- resumo automático por tamanho.
+- resumo automático por tamanho;
+- logs JSONL de eventos do terminal;
+- configuração `[mcp]` e `[logs]` específicas no cliente.
 
-Ainda pendente:
+Ainda em aberto:
 
-- `--mock` com clientes fake;
-- bootstrap do token de API do agente;
-- logs estruturados dedicados do cliente;
-- configuração `[mcp]` específica no cliente.
+- `--no-runtime` continua reservado e não altera o comportamento;
+- a captura serial segue Linux-only por usar `termios`/`select`.
