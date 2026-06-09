@@ -28,6 +28,7 @@ class AuthConfig(BaseModel):
     api_env_var: str = "COUS_OPENTRACY_API_TOKEN"
     opentracy_env_file: str = "../OpenTracy/.env"
     opentracy_env_key: str = "OPENTRACY_KNOWLEDGE_AUTH_TOKEN"
+    opentracy_measurements_env_key: str = "OPENTRACY_MEASUREMENTS_AUTH_TOKEN"
 
 
 class MemoryConfig(BaseModel):
@@ -48,12 +49,24 @@ class ChatConfig(BaseModel):
     conversations_dir: str = ".cous-data/conversations"
 
 
+class MpcConfig(BaseModel):
+    timeout_seconds: int = 30
+    max_restarts: int = 3
+    restart_backoff_seconds: int = 5
+
+
+class LogsConfig(BaseModel):
+    events_file: str = ".cous-data/logs/events.jsonl"
+
+
 class Config(BaseModel):
     opentracy: OpenTracyConfig = OpenTracyConfig()
     auth: AuthConfig = AuthConfig()
     memory: MemoryConfig = MemoryConfig()
     measurements: MeasurementsConfig = MeasurementsConfig()
     chat: ChatConfig = ChatConfig()
+    mcp: MpcConfig = MpcConfig()
+    logs: LogsConfig = LogsConfig()
 
 
 def load_config(path: Path | None = None) -> Config:

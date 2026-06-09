@@ -16,6 +16,7 @@ from cous.clients.knowledge import KnowledgeClient
 from cous.clients.measurements import MeasurementsClient
 from cous.clients.opentracy import OpenTracyClient
 from cous.config import Config
+from cous.logger import EventLogger
 from cous.measurements.serial_capture import (
     DEFAULT_VERTICALS,
     capture_tma_snapshots,
@@ -35,6 +36,7 @@ class CommandContext:
     measurements: MeasurementsClient
     conversations: ConversationStore
     session: ChatSession
+    logger: EventLogger
 
 
 class CommandRouter:
@@ -61,10 +63,14 @@ class CommandRouter:
         args = parts[1] if len(parts) > 1 else ""
         entry = self._commands.get(command)
         if entry is None:
+            if hasattr(ctx, "logger"):
+                ctx.logger.log("command_unknown", session_id=ctx.session.session_id, command=command)
             renderer.error(f"Comando desconhecido: /{command}")
             renderer.info("Digite /ajuda para ver os comandos disponiveis.")
             return True
         handler, _ = entry
+        if hasattr(ctx, "logger"):
+            ctx.logger.log("command_dispatch", session_id=ctx.session.session_id, command=command, args=args)
         return handler(ctx, args)
 
     def descriptions(self) -> list[tuple[str, str]]:
@@ -727,6 +733,7 @@ def _is_truthy(value: object) -> bool:
 
 def _new_session(ctx: CommandContext, args: str) -> bool:
     ctx.session = ctx.conversations.create_session()
+    ctx.logger.log("chat_session_created", session_id=ctx.session.session_id)
     renderer.success(f"Nova sessao de chat criada: {ctx.session.session_id}")
     return True
 
@@ -750,6 +757,7 @@ def _summary_chat(ctx: CommandContext, args: str) -> bool:
         renderer.error(f"Falha ao resumir sessao: {exc}")
         return True
     ctx.session.set_summary(summary)
+    ctx.logger.log("summary_updated", session_id=ctx.session.session_id, automatic=False)
     renderer.success(f"Resumo atualizado para a sessao {ctx.session.session_id}.")
     renderer.assistant(summary)
     return True
@@ -772,6 +780,7 @@ def _load_chat_session(ctx: CommandContext, args: str) -> bool:
         renderer.error(str(exc))
         return True
     renderer.success(f"Sessao carregada: {ctx.session.session_id}")
+    ctx.logger.log("chat_session_loaded", session_id=ctx.session.session_id)
     renderer.info(
         f"Mensagens={len(ctx.session.history)} resumo={'sim' if bool(ctx.session.summary) else 'nao'}"
     )

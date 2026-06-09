@@ -11,6 +11,7 @@ api_token_file = "~/.ligadoai/api_token"
 api_env_var = "COUS_OPENTRACY_API_TOKEN"
 opentracy_env_file = "../OpenTracy/.env"
 opentracy_env_key = "OPENTRACY_KNOWLEDGE_AUTH_TOKEN"
+opentracy_measurements_env_key = "OPENTRACY_MEASUREMENTS_AUTH_TOKEN"
 
 [memory]
 max_history = 10
@@ -18,6 +19,14 @@ max_chars_before_summary = 16000
 
 [chat]
 conversations_dir = ".cous-data/conversations"
+
+[mcp]
+timeout_seconds = 30
+max_restarts = 3
+restart_backoff_seconds = 5
+
+[logs]
+events_file = ".cous-data/logs/events.jsonl"
 
 [measurements]
 storage_file = ".cous-data/measurements.json"

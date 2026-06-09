@@ -15,6 +15,7 @@ O novo Cous faz:
 - chat com o agente via backend do OpenTracy;
 - persistência local de sessões de chat em JSONL;
 - resumo manual e automático de conversa;
+- logs JSONL de eventos do terminal;
 - comandos de knowledge (`/indexar`, `/buscar`, `/validar`, `/status`);
 - captura, persistência local e sincronização de medições.
 
@@ -66,7 +67,7 @@ uv sync --extra dev
 
 ## Bootstrap
 
-O bootstrap atual cobre o token de knowledge:
+O bootstrap agora cobre o token de knowledge, o token de medições e o canal API do agente:
 
 ```bash
 uv run cous --bootstrap
@@ -76,19 +77,11 @@ Isso:
 
 - cria `~/.cous/opentracy_token` se ele não existir;
 - aplica permissão `0600`;
-- grava o mesmo valor em `../OpenTracy/.env` como `OPENTRACY_KNOWLEDGE_AUTH_TOKEN`.
-
-Ele ainda não provisiona o token de API do agente. Esse token deve existir em:
-
-```text
-~/.ligadoai/api_token
-```
-
-ou no env:
-
-```text
-COUS_OPENTRACY_API_TOKEN
-```
+- grava o mesmo valor em `../OpenTracy/.env` como `OPENTRACY_KNOWLEDGE_AUTH_TOKEN`;
+- grava o mesmo valor em `../OpenTracy/.env` como `OPENTRACY_MEASUREMENTS_AUTH_TOKEN`;
+- tenta garantir a existência do agente configurado em `opentracy.agent_id`;
+- tenta conectar o canal API em `POST /agents/<agent_id>/channels/api/connect`;
+- quando o runtime devolve um token `ot_*`, salva esse token em `~/.ligadoai/api_token`.
 
 Depois do bootstrap, reinicie o runtime do OpenTracy.
 
@@ -120,6 +113,14 @@ max_chars_before_summary = 16000
 [chat]
 conversations_dir = ".cous-data/conversations"
 
+[mcp]
+timeout_seconds = 30
+max_restarts = 3
+restart_backoff_seconds = 5
+
+[logs]
+events_file = ".cous-data/logs/events.jsonl"
+
 [measurements]
 storage_file = ".cous-data/measurements.json"
 ```
@@ -134,6 +135,10 @@ Parâmetros relevantes:
   - diretório dos arquivos JSONL de conversa.
 - `measurements.storage_file`
   - store local de medições.
+- `mcp.*`
+  - reserva a configuração operacional do cliente para integrações MCP.
+- `logs.events_file`
+  - arquivo JSONL onde o terminal grava eventos de sessão, comandos, chat e resumo.
 
 ## Execução
 
@@ -148,7 +153,9 @@ Parâmetros disponíveis:
 - `--config <arquivo.toml>`
   - usa um arquivo de configuração específico.
 - `--mock`
-  - ainda não implementado; hoje apenas avisa.
+  - usa clientes fake locais para chat, knowledge e medições;
+  - não exige tokens nem OpenTracy ativo;
+  - útil para validar UX do terminal e fluxo local.
 - `--no-runtime`
   - reservado; ainda não altera o comportamento.
 
@@ -288,6 +295,22 @@ Arquivos operacionais e artefatos locais não devem ser versionados:
 - `*.backup`
 
 O objetivo é manter no Git apenas código, testes, documentação e arquivos de configuração que realmente fazem parte do produto.
+
+## Logs de eventos
+
+O terminal grava eventos JSONL em `logs.events_file`.
+
+Exemplos de eventos:
+
+- `startup`
+- `terminal_ready`
+- `command_dispatch`
+- `chat_user`
+- `chat_assistant`
+- `chat_error`
+- `summary_updated`
+
+Isso preserva um histórico técnico local sem depender do runtime do OpenTracy.
 
 O comando `/status` já mostra se a vertical de medições está em:
 

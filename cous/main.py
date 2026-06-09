@@ -7,6 +7,7 @@ from pathlib import Path
 
 from cous.auth import AuthError, TokenProvider
 from cous.bootstrap import bootstrap_auth
+from cous.logger import EventLogger
 from cous.cli import renderer
 from cous.cli.terminal import run_terminal
 from cous.clients.knowledge import KnowledgeClient
@@ -14,6 +15,7 @@ from cous.clients.measurements import MeasurementsClient
 from cous.clients.opentracy import OpenTracyClient
 from cous.config import expand_path, load_config
 from cous.application.session import ConversationStore
+from cous.mocks import MockKnowledgeClient, MockMeasurementsClient, MockOpenTracyClient
 from cous.measurements.store import MeasurementLocalStore
 
 
@@ -26,16 +28,42 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(Path(args.config) if args.config else None)
-    if args.mock:
-        renderer.warning("Modo mock ainda sera implementado com clientes fake.")
     if args.bootstrap:
-        result = bootstrap_auth(config.auth)
+        result = bootstrap_auth(config)
         renderer.success(f"Token Cous: {result.token_file}")
+        renderer.success(f"Token API do agente: {result.api_token_file}")
         renderer.success(f"OpenTracy .env: {result.opentracy_env_file}")
         if result.token_created:
             renderer.info("Token novo gerado.")
+        if result.api_token_created:
+            renderer.info("Token do canal API salvo localmente.")
         if result.env_updated:
             renderer.info("Reinicie o runtime do OpenTracy para carregar o novo token.")
+        if result.agent_created:
+            renderer.info(f"Agente criado no runtime: {config.opentracy.agent_id}")
+        if result.api_connected:
+            renderer.info(f"Canal API pronto: {result.public_url}")
+        else:
+            renderer.warning("Canal API nao foi conectado automaticamente; verifique se o runtime esta ativo.")
+        return
+
+    logger = EventLogger(expand_path(config.logs.events_file))
+    logger.log("startup", mock_mode=args.mock, agent_id=config.opentracy.agent_id)
+
+    if args.mock:
+        renderer.warning("Executando em modo mock: chat, knowledge e medicoes sem OpenTracy real.")
+        opentracy = MockOpenTracyClient(agent_id=config.opentracy.agent_id)
+        knowledge = MockKnowledgeClient()
+        measurements = MockMeasurementsClient(
+            MeasurementLocalStore(expand_path(config.measurements.storage_file))
+        )
+        conversations = ConversationStore(expand_path(config.chat.conversations_dir))
+        try:
+            run_terminal(config, opentracy, knowledge, measurements, conversations, logger)
+        finally:
+            opentracy.close()
+            knowledge.close()
+            measurements.close()
         return
 
     knowledge_token_provider = TokenProvider.for_knowledge(config.auth)
@@ -67,7 +95,7 @@ def main() -> None:
     )
     conversations = ConversationStore(expand_path(config.chat.conversations_dir))
     try:
-        run_terminal(config, opentracy, knowledge, measurements, conversations)
+        run_terminal(config, opentracy, knowledge, measurements, conversations, logger)
     finally:
         opentracy.close()
         knowledge.close()
