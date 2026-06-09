@@ -9,10 +9,11 @@ from cous.cli.commands import (
 )
 
 
-def test_unknown_command_returns_continue(capsys):
+def test_unknown_command_returns_continue(make_context):
     router = CommandRouter()
+    ctx = make_context()
 
-    result = router.dispatch("/naoexiste", ctx=object())
+    result = router.dispatch("/naoexiste", ctx=ctx)
 
     assert result is True
 
@@ -77,7 +78,8 @@ def test_prompt_does_not_parse_default_as_rich_markup(monkeypatch):
     assert _prompt("Porta serial", "/dev/ttyACM0") == "/dev/ttyACM0"
 
 
-def test_command_alias_dispatches_to_registered_handler():
+def test_command_alias_dispatches_to_registered_handler(make_context):
     router = build_router()
+    ctx = make_context()
 
-    assert router.dispatch("/h", ctx=object()) is True
+    assert router.dispatch("/h", ctx=ctx) is True
