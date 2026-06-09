@@ -162,7 +162,29 @@ class ConversationStore:
         )
 
     def list_sessions(self) -> list[dict[str, Any]]:
+        """Lê o índice leve _index.jsonl em vez de todos os arquivos JSONL."""
         self._conversations_dir.mkdir(parents=True, exist_ok=True)
+        index_path = self._conversations_dir / "_index.jsonl"
+        if not index_path.is_file():
+            return self._rebuild_index_and_list()
+        sessions: dict[str, dict[str, Any]] = {}
+        for line in index_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+                sessions[entry["id"]] = entry
+            except (json.JSONDecodeError, KeyError):
+                continue
+        result = sorted(
+            sessions.values(),
+            key=lambda x: str(x.get("updated_at") or ""),
+            reverse=True,
+        )
+        return result
+
+    def _rebuild_index_and_list(self) -> list[dict[str, Any]]:
+        """Primeira execução: reconstrói o índice a partir dos arquivos existentes."""
         sessions: list[dict[str, Any]] = []
         for path in sorted(self._conversations_dir.glob("*.jsonl")):
             try:
@@ -172,18 +194,39 @@ class ConversationStore:
             preview = ""
             if session.history:
                 preview = session.history[-1].get("content", "")[:60]
-            sessions.append(
-                {
-                    "id": session.session_id,
-                    "messages": len(session.history),
-                    "summary_present": bool(session.summary),
-                    "created_at": session.created_at,
-                    "updated_at": session.updated_at,
-                    "preview": preview,
-                }
-            )
+            entry = {
+                "id": session.session_id,
+                "messages": len(session.history),
+                "summary_present": bool(session.summary),
+                "created_at": session.created_at,
+                "updated_at": session.updated_at,
+                "preview": preview,
+            }
+            sessions.append(entry)
+            self._update_index(session.session_id, entry["updated_at"])
         sessions.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
         return sessions
+
+    def _update_index(self, session_id: str, updated_at: str) -> None:
+        """Adiciona/atualiza entrada no índice após cada evento."""
+        preview = ""
+        # Tenta obter preview da sessão ativa se disponível
+        index_path = self._conversations_dir / "_index.jsonl"
+        try:
+            with index_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps({
+                        "id": session_id,
+                        "messages": 0,
+                        "summary_present": False,
+                        "created_at": updated_at,
+                        "updated_at": updated_at,
+                        "preview": "",
+                    }, ensure_ascii=True)
+                    + "\n"
+                )
+        except OSError:
+            pass  # Índice é otimização — falha não bloqueia
 
     def latest_session(self) -> ChatSession | None:
         sessions = self.list_sessions()
