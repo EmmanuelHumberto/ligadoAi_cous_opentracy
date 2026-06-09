@@ -45,9 +45,24 @@ def test_iter_lines_does_not_stop_on_empty_serial_read(monkeypatch):
     stream = Stream()
     times = iter([0.0, 0.0, 2.0])
     monkeypatch.setattr("cous.measurements.serial_capture.time.monotonic", lambda: next(times))
+    # select é importado localmente em _iter_lines; patch diretamente no módulo select
     monkeypatch.setattr(
-        "cous.measurements.serial_capture.select.select",
+        "select.select",
         lambda read, write, error, timeout: (read, write, error),
     )
 
     assert list(_iter_lines(stream, deadline=1.0)) == ['TMA_DATA {"type":"hall_snapshot"}']
+
+
+def test_module_imports_without_termios(monkeypatch):
+    """Importar o módulo não lança ImportError quando termios está ausente."""
+    import sys
+    # Simula ambiente sem termios
+    monkeypatch.setitem(sys.modules, "termios", None)
+    # Remove do cache para forçar reimport limpo
+    sys.modules.pop("cous.measurements.serial_capture", None)
+    # Deve importar sem erro
+    import cous.measurements.serial_capture as sc
+    # Funções de domínio devem estar acessíveis (não dependem de termios)
+    assert sc.normalize_snapshot_type("hall_snapshot") == "hall"
+    assert sc.collect_tma_snapshots_from_lines is not None

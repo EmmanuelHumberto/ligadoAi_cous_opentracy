@@ -4,37 +4,14 @@ from __future__ import annotations
 
 import json
 import os
-import select
-import termios
 import time
 from collections.abc import Callable, Iterable
 from contextlib import suppress
 from typing import Any, BinaryIO
 
+from cous.measurements.constants import DEFAULT_VERTICALS, TYPE_ALIASES as _TYPE_ALIASES
+
 TMA_PREFIX = "TMA_DATA "
-DEFAULT_VERTICALS = ("hall", "power", "course", "vibration")
-
-_TYPE_ALIASES = {
-    "hall": "hall",
-    "hall_snapshot": "hall",
-    "power": "power",
-    "power_snapshot": "power",
-    "course": "course",
-    "course_snapshot": "course",
-    "vibration": "vibration",
-    "vibration_snapshot": "vibration",
-}
-
-_BAUD_RATES = {
-    9600: termios.B9600,
-    19200: termios.B19200,
-    38400: termios.B38400,
-    57600: termios.B57600,
-    115200: termios.B115200,
-    230400: termios.B230400,
-    460800: termios.B460800,
-    921600: termios.B921600,
-}
 
 
 def normalize_snapshot_type(value: object) -> str:
@@ -123,7 +100,24 @@ def _capture_from_stream(
 
 
 def _configure_serial(fd: int, baudrate: int) -> None:
-    speed = _BAUD_RATES.get(baudrate)
+    try:
+        import termios  # noqa: PLC0415
+    except ImportError as exc:
+        raise RuntimeError(
+            "Captura serial requer Linux (termios nao disponivel neste sistema)."
+        ) from exc
+
+    _baud_rates = {
+        9600: termios.B9600,
+        19200: termios.B19200,
+        38400: termios.B38400,
+        57600: termios.B57600,
+        115200: termios.B115200,
+        230400: termios.B230400,
+        460800: termios.B460800,
+        921600: termios.B921600,
+    }
+    speed = _baud_rates.get(baudrate)
     if speed is None:
         raise ValueError(f"Baudrate nao suportado: {baudrate}")
     attrs = termios.tcgetattr(fd)
@@ -139,6 +133,12 @@ def _configure_serial(fd: int, baudrate: int) -> None:
 
 
 def _iter_lines(stream: BinaryIO, deadline: float) -> Iterable[str]:
+    try:
+        import select  # noqa: PLC0415
+    except ImportError as exc:
+        raise RuntimeError(
+            "Captura serial requer Linux (select nao disponivel neste sistema)."
+        ) from exc
     buffer = bytearray()
     while True:
         remaining = deadline - time.monotonic()
