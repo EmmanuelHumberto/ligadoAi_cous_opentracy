@@ -1,0 +1,20 @@
+[opentracy]
+backend_url = "http://localhost:8002"
+runtime_url = "http://localhost:8001"
+agent_id = "cous"
+timeout = 30
+
+[auth]
+token_file = "~/.cous/opentracy_token"
+env_var = "COUS_OPENTRACY_TOKEN"
+api_token_file = "~/.ligadoai/api_token"
+api_env_var = "COUS_OPENTRACY_API_TOKEN"
+opentracy_env_file = "../OpenTracy/.env"
+opentracy_env_key = "OPENTRACY_KNOWLEDGE_AUTH_TOKEN"
+
+[memory]
+max_history = 10
+max_chars_before_summary = 16000
+
+[measurements]
+storage_file = ".cous-data/measurements.json"
