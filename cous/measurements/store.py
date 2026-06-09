@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -119,8 +121,24 @@ class MeasurementLocalStore:
 
     def _save(self, data: dict[str, list[dict[str, Any]]]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with self._path.open("w", encoding="utf-8") as handle:
-            json.dump(data, handle, ensure_ascii=True, indent=2, sort_keys=True)
+        # Escrita atômica: arquivo temporário + fsync + os.replace
+        dir_path = self._path.parent
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=dir_path,
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            try:
+                json.dump(data, tmp, ensure_ascii=True, indent=2, sort_keys=True)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            except Exception:
+                tmp_path.unlink(missing_ok=True)
+                raise
+        os.replace(tmp_path, self._path)
 
     def _generate_id(self) -> str:
         stamp = datetime.now(timezone.utc).strftime("med_%Y%m%d_%H%M%S")
