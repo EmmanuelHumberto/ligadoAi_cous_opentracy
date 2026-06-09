@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import time as _time
 from typing import Any
 
 import httpx
 
 from cous.auth import TokenProvider
+
+_RETRYABLE_STATUS = {429, 502, 503, 504}
+_DEFAULT_RETRIES = 3
+_RETRY_BASE_SECONDS = 1.0
 
 
 class ClientError(Exception):
@@ -16,9 +21,10 @@ class ClientError(Exception):
 
 
 class AuthenticatedHttpClient:
-    def __init__(self, *, token_provider: TokenProvider, timeout: int) -> None:
+    def __init__(self, *, token_provider: TokenProvider, timeout: int, retries: int = _DEFAULT_RETRIES) -> None:
         self._token_provider = token_provider
         self._http = httpx.Client(timeout=httpx.Timeout(timeout))
+        self._retries = retries
 
     def get(self, url: str) -> dict[str, Any]:
         response = self._request("GET", url)
@@ -37,23 +43,43 @@ class AuthenticatedHttpClient:
     def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         headers = kwargs.pop("headers", {})
         headers["Authorization"] = f"Bearer {self._token_provider.load()}"
-        try:
-            response = self._http.request(method, url, headers=headers, **kwargs)
-        except httpx.TimeoutException as exc:
-            raise ClientError("Timeout ao comunicar com OpenTracy") from exc
-        except httpx.RequestError as exc:
-            raise ClientError(f"Falha de conexao com OpenTracy: {exc}") from exc
 
-        if response.status_code == 401:
-            raise ClientError("Token ausente, invalido ou expirado", status_code=401)
-        if response.status_code == 403:
-            raise ClientError("Token valido, mas sem permissao para esta acao", status_code=403)
-        if not response.is_success:
-            raise ClientError(
-                f"HTTP {response.status_code}: {_response_detail(response)}",
-                status_code=response.status_code,
-            )
-        return response
+        # Retry automático apenas para GET (idempotente).
+        # POST/DELETE podem duplicar recursos — o chamador decide.
+        max_attempts = self._retries + 1 if method == "GET" else 1
+
+        for attempt in range(max_attempts):
+            try:
+                response = self._http.request(method, url, headers=headers, **kwargs)
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
+                if attempt < max_attempts - 1:
+                    _time.sleep(_RETRY_BASE_SECONDS * (2 ** attempt))
+                    continue
+                raise ClientError(
+                    "Timeout ao comunicar com OpenTracy"
+                    if isinstance(exc, httpx.TimeoutException)
+                    else f"Falha de conexao com OpenTracy: {exc}"
+                ) from exc
+
+            # Sem retry para erros de autenticação — não são transitórios
+            if response.status_code == 401:
+                raise ClientError("Token ausente, invalido ou expirado", status_code=401)
+            if response.status_code == 403:
+                raise ClientError("Token valido, mas sem permissao para esta acao", status_code=403)
+
+            # Retry apenas para GET com 5xx transitórios
+            if method == "GET" and response.status_code in _RETRYABLE_STATUS and attempt < max_attempts - 1:
+                _time.sleep(_RETRY_BASE_SECONDS * (2 ** attempt))
+                continue
+
+            if not response.is_success:
+                raise ClientError(
+                    f"HTTP {response.status_code}: {_response_detail(response)}",
+                    status_code=response.status_code,
+                )
+            return response
+
+        raise ClientError("Falha após todas as tentativas")
 
 
 def _json_object(response: httpx.Response) -> dict[str, Any]:
