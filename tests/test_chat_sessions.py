@@ -69,3 +69,35 @@ def test_auto_summary_updates_session_when_threshold_is_reached(tmp_path):
     loaded = store.load_session("chat_summary")
     assert loaded.summary == "Resumo automatico"
     assert loaded.summarized_until == 2
+
+
+def test_load_session_tolerates_corrupted_line(tmp_path):
+    """Sessão com uma linha corrompida deve carregar o restante das mensagens."""
+    store = ConversationStore(tmp_path)
+    session = store.create_session()
+    session.add("user", "mensagem válida")
+
+    # Injeta linha corrompida diretamente no arquivo
+    path = tmp_path / f"{session.session_id}.jsonl"
+    with path.open("a", encoding="utf-8") as f:
+        f.write("LINHA_INVALIDA_NAO_JSON\n")
+
+    session.add("user", "mensagem após corrupção")
+
+    loaded = store.load_session(session.session_id)
+    # Deve ter 2 mensagens (não 0 ou erro)
+    assert len(loaded.history) == 2
+
+
+def test_load_session_skips_all_corrupted_lines(tmp_path):
+    """Arquivo completamente corrompido retorna sessão vazia sem lançar exceção."""
+    store = ConversationStore(tmp_path)
+    session_id = "chat_20260101_000000_abc123"
+    path = tmp_path / f"{session_id}.jsonl"
+    path.write_text(
+        '{"type":"meta","session_id":"chat_20260101_000000_abc123",'
+        '"created_at":"2026-01-01T00:00:00+00:00","updated_at":"2026-01-01T00:00:00+00:00"}\n'
+        "INVALIDO\nOUTRO_INVALIDO\n"
+    )
+    loaded = store.load_session(session_id)
+    assert loaded.history == []

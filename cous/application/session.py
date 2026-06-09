@@ -93,7 +93,15 @@ class ConversationStore:
         )
         return session
 
-    def load_session(self, session_id: str) -> ChatSession:
+    def load_session(self, session_id: str, *, event_logger=None) -> ChatSession:
+        """
+        Carrega sessão do disco. Linhas JSONL inválidas são puladas com log.
+
+        Args:
+            session_id: ID ou prefixo da sessão.
+            event_logger: EventLogger opcional para registrar linhas corrompidas.
+                          Chamadas internas (ex: list_sessions) passam None.
+        """
         resolved = session_id
         path = self._session_path(resolved)
         if not path.is_file():
@@ -106,10 +114,20 @@ class ConversationStore:
         summarized_until = 0
         created_at = ""
         updated_at = ""
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             if not line.strip():
                 continue
-            item = json.loads(line)
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError as exc:
+                if event_logger is not None:
+                    event_logger.log(
+                        "jsonl_parse_error",
+                        session_id=resolved,
+                        line=line_number,
+                        error=str(exc),
+                    )
+                continue
             event_type = str(item.get("type") or "")
             if event_type == "meta":
                 created_at = str(item.get("created_at") or created_at or utc_now_iso())

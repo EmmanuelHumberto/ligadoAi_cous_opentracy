@@ -775,7 +775,7 @@ def _load_chat_session(ctx: CommandContext, args: str) -> bool:
                 return True
             ctx.session = latest
         else:
-            ctx.session = ctx.conversations.load_session(target)
+            ctx.session = ctx.conversations.load_session(target, event_logger=ctx.logger)
     except ValueError as exc:
         renderer.error(str(exc))
         return True
