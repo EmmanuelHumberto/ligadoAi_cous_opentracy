@@ -269,5 +269,19 @@ class MeasurementsClient:
         session["last_sync_error"] = ""
         return self._store.replace_session(session)
 
+    def get_verticals(self) -> tuple[str, ...]:
+        """
+        Retorna verticais suportadas.
+        Tenta endpoint remoto; usa DEFAULT_VERTICALS como fallback.
+        """
+        try:
+            result = self._http.get(f"{self._runtime_url}/measurements/verticals")
+            verticals = result.get("verticals")
+            if isinstance(verticals, list) and verticals:
+                return tuple(str(v) for v in verticals)
+        except Exception:
+            pass
+        return DEFAULT_VERTICALS
+
     def close(self) -> None:
         self._http.close()

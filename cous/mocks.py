@@ -49,6 +49,9 @@ class MockOpenTracyClient:
             {"name": "mock.measurements"},
         ]
 
+    def get_verticals(self) -> tuple[str, ...]:
+        return DEFAULT_VERTICALS
+
     def close(self) -> None:
         return None
 
@@ -105,6 +108,9 @@ class MockKnowledgeClient:
 
     def delete_document(self, document_id: str) -> None:
         self._documents = [item for item in self._documents if item["id"] != document_id]
+
+    def get_verticals(self) -> tuple[str, ...]:
+        return DEFAULT_VERTICALS
 
     def close(self) -> None:
         return None
@@ -215,6 +221,9 @@ class MockMeasurementsClient:
         session["status"] = "reported"
         updated = self._store.replace_session(session)
         return {"markdown": markdown, "session": updated, "source": "mock"}
+
+    def get_verticals(self) -> tuple[str, ...]:
+        return DEFAULT_VERTICALS
 
     def close(self) -> None:
         return None

@@ -416,7 +416,7 @@ def _capture(ctx: CommandContext, args: str) -> bool:
         header = (
             _parse_measurement_header_args(args)
             if args.strip()
-            else _prompt_measurement_header()
+            else _prompt_measurement_header(ctx=ctx)
         )
         session = ctx.measurements.create_session(_measurement_header_payload(header))
         session_id = str(session.get("id") or "")
@@ -549,7 +549,7 @@ def _measurement_header_payload(header: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _prompt_measurement_header() -> dict[str, Any]:
+def _prompt_measurement_header(ctx: CommandContext | None = None) -> dict[str, Any]:
     header: dict[str, Any] | None = None
     while True:
         renderer.info("Preencha o cabecalho. Pressione Enter para aceitar o padrao.")
@@ -566,7 +566,7 @@ def _prompt_measurement_header() -> dict[str, Any]:
         header.update(machine)
         header.update(collection)
         header.update(serial)
-        header["verticais"] = _prompt_verticals(current_verticals)
+        header["verticais"] = _prompt_verticals(current_verticals, ctx=ctx)
         header["sem_serial"] = _prompt_bool("Criar sessao sem capturar agora?", current_sem_serial)
         renderer.info(
             "Resumo: "
@@ -702,9 +702,10 @@ def _prompt_bool(message: str, default: bool) -> bool:
     return _prompt_bool(message, default)
 
 
-def _prompt_verticals(current: list[str] | None = None) -> list[str]:
+def _prompt_verticals(current: list[str] | None = None, ctx: CommandContext | None = None) -> list[str]:
     selected: list[str] = []
-    for vertical in DEFAULT_VERTICALS:
+    available = ctx.measurements.get_verticals() if ctx is not None else DEFAULT_VERTICALS
+    for vertical in available:
         default = True if current is None else vertical in current
         if _prompt_bool(f"Coletar {vertical}_snapshot?", default):
             selected.append(vertical)
