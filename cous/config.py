@@ -61,6 +61,8 @@ class KnowledgeConfig(BaseModel):
 
 class LogsConfig(BaseModel):
     events_file: str = ".cous-data/logs/events.jsonl"
+    max_size_mb: int = 10
+    backup_count: int = 3
 
 
 class Config(BaseModel):
@@ -70,7 +72,7 @@ class Config(BaseModel):
     measurements: MeasurementsConfig = MeasurementsConfig()
     chat: ChatConfig = ChatConfig()
     mcp: MpcConfig = MpcConfig()
-    logs: LogsConfig = LogsConfig()
+    logs: LogsConfig = Field(default_factory=LogsConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
 
 

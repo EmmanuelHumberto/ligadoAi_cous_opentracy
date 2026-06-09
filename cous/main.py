@@ -46,7 +46,11 @@ def main() -> None:
             renderer.warning("Canal API nao foi conectado automaticamente; verifique se o runtime esta ativo.")
         return
 
-    logger = EventLogger(expand_path(config.logs.events_file))
+    logger = EventLogger(
+        expand_path(config.logs.events_file),
+        max_bytes=config.logs.max_size_mb * 1024 * 1024,
+        backup_count=config.logs.backup_count,
+    )
     logger.log("startup", mock_mode=args.mock, agent_id=config.opentracy.agent_id)
 
     if args.mock:
