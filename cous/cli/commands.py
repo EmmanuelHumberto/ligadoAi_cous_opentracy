@@ -243,7 +243,7 @@ def _collect_index_targets(target: Path) -> list[Path]:
 
 
 def _validate(ctx: CommandContext, args: str) -> bool:
-    target_value = args.strip() or _prompt("Arquivo ou pasta para validar")
+    target_value = args.strip() or _prompt("Arquivo ou pasta para validar", ctx=ctx)
     if not target_value.strip():
         _route_msg(ctx, "error", "Uso: /validar <arquivo|pasta>")
         return True
@@ -355,7 +355,7 @@ def _documents(ctx: CommandContext, args: str) -> bool:
 
 
 def _search(ctx: CommandContext, args: str) -> bool:
-    query = args.strip() or _prompt("Consulta para buscar")
+    query = args.strip() or _prompt("Consulta para buscar", ctx=ctx)
     if not query.strip():
         _route_msg(ctx, "error", "Uso: /buscar <consulta>")
         return True
@@ -371,7 +371,7 @@ def _search(ctx: CommandContext, args: str) -> bool:
 
 
 def _delete(ctx: CommandContext, args: str) -> bool:
-    document_id = args.strip() or _prompt("Document ID para remover")
+    document_id = args.strip() or _prompt("Document ID para remover", ctx=ctx)
     if not document_id:
         _route_msg(ctx, "error", "Uso: /remover <document_id>")
         return True
@@ -511,7 +511,7 @@ def _capture(ctx: CommandContext, args: str) -> bool:
         except (ClientError, OSError, ValueError) as exc:
             capture_error = str(exc)
             _route_msg(ctx, "error", f"Falha na captura serial: {exc}")
-        action = _prompt_post_capture_action(
+        action = _prompt_post_capture_action(ctx=ctx, 
             has_snapshots=bool(snapshots),
             has_error=bool(capture_error),
         )
@@ -618,11 +618,11 @@ def _prompt_measurement_header(ctx: CommandContext | None = None) -> dict[str, A
     while True:
         _route_msg(ctx, "info", "Preencha o cabecalho. Pressione Enter para aceitar o padrao.")
         _route_msg(ctx, "info", "Dados da maquina")
-        machine = _prompt_machine_header(header)
+        machine = _prompt_machine_header(header, ctx=ctx)
         _route_msg(ctx, "info", "Dados da coleta")
-        collection = _prompt_collection_header(header)
+        collection = _prompt_collection_header(header, ctx=ctx)
         _route_msg(ctx, "info", "Conexao serial")
-        serial = _prompt_serial_header(header)
+        serial = _prompt_serial_header(header, ctx=ctx)
         _route_msg(ctx, "info", "Selecao de TMA_DATA")
         current_verticals = header.get("verticais") if header else None
         current_sem_serial = bool(header.get("sem_serial")) if header else False
@@ -631,7 +631,7 @@ def _prompt_measurement_header(ctx: CommandContext | None = None) -> dict[str, A
         header.update(collection)
         header.update(serial)
         header["verticais"] = _prompt_verticals(current_verticals, ctx=ctx)
-        header["sem_serial"] = _prompt_bool("Criar sessao sem capturar agora?", current_sem_serial)
+        header["sem_serial"] = _prompt_bool("Criar sessao sem capturar agora?", current_sem_serial, ctx=ctx)
         renderer.info(
             "Resumo: "
             f"{header.get('fabricante') or '-'} {header.get('modelo') or '-'} "
@@ -639,35 +639,37 @@ def _prompt_measurement_header(ctx: CommandContext | None = None) -> dict[str, A
             f"coleta={header.get('tipo_coleta')} "
             f"verticais={','.join(header['verticais'])}"
         )
-        action = _prompt_header_action()
+        action = _prompt_header_action(ctx=ctx)
         if action == "salvar":
             return header
         if action == "descartar":
             raise ValueError("Captura cancelada pelo usuario.")
 
 
-def _prompt_machine_header(previous: dict[str, Any] | None = None) -> dict[str, Any]:
+def _prompt_machine_header(previous: dict[str, Any] | None = None, *, ctx = None) -> dict[str, Any]:
     previous = previous or {}
     return {
-        "fabricante": _prompt("Fabricante", str(previous.get("fabricante") or "DKLAB")),
-        "modelo": _prompt("Modelo", str(previous.get("modelo") or "")),
-        "numero_serie": _prompt("Numero de serie", str(previous.get("numero_serie") or "")),
+        "fabricante": _prompt("Fabricante", str(previous.get("fabricante") or "DKLAB"), ctx=ctx),
+        "modelo": _prompt("Modelo", str(previous.get("modelo") or ""), ctx=ctx),
+        "numero_serie": _prompt("Numero de serie", str(previous.get("numero_serie") or ""), ctx=ctx),
         "tipo_maquina": _prompt(
             "Tipo de maquina",
             str(previous.get("tipo_maquina") or "tattoo_machine"),
+            ctx=ctx,
         ),
-        "tipo_motor": _prompt("Tipo de motor", str(previous.get("tipo_motor") or "coreless")),
+        "tipo_motor": _prompt("Tipo de motor", str(previous.get("tipo_motor") or "coreless"), ctx=ctx),
         "sistema_transmissao": _prompt(
             "Sistema de transmissao",
             str(previous.get("sistema_transmissao") or "direct"),
+            ctx=ctx,
         ),
-        "curso_nominal_mm": _prompt_float("Curso nominal mm", _coerce_float(previous.get("curso_nominal_mm"))),
-        "curso_min_mm": _prompt_float("Curso minimo mm", _coerce_float(previous.get("curso_min_mm"))),
-        "curso_max_mm": _prompt_float("Curso maximo mm", _coerce_float(previous.get("curso_max_mm"))),
+        "curso_nominal_mm": _prompt_float("Curso nominal mm", _coerce_float(previous.get("curso_nominal_mm")), ctx=ctx),
+        "curso_min_mm": _prompt_float("Curso minimo mm", _coerce_float(previous.get("curso_min_mm")), ctx=ctx),
+        "curso_max_mm": _prompt_float("Curso maximo mm", _coerce_float(previous.get("curso_max_mm")), ctx=ctx),
     }
 
 
-def _prompt_collection_header(previous: dict[str, Any] | None = None) -> dict[str, Any]:
+def _prompt_collection_header(previous: dict[str, Any] | None = None, *, ctx = None) -> dict[str, Any]:
     previous = previous or {}
     header = {
         "tipo_coleta": _prompt(
@@ -682,27 +684,30 @@ def _prompt_collection_header(previous: dict[str, Any] | None = None) -> dict[st
                 "calibracao",
                 "laudo_calibracao",
             ],
+            ctx=ctx,
         ),
         "peca_substituida": str(previous.get("peca_substituida") or ""),
-        "observacoes": _prompt("Observacoes", str(previous.get("observacoes") or "")),
-        "tecnico": _prompt("Tecnico responsavel", str(previous.get("tecnico") or "")),
+        "observacoes": _prompt("Observacoes", str(previous.get("observacoes") or ""), ctx=ctx),
+        "tecnico": _prompt("Tecnico responsavel", str(previous.get("tecnico") or ""), ctx=ctx),
     }
     if header["tipo_coleta"] in {"reparo", "pos-reparo"}:
         header["peca_substituida"] = _prompt(
             "Peca substituida",
             str(previous.get("peca_substituida") or ""),
+            ctx=ctx,
         )
     return header
 
 
-def _prompt_serial_header(previous: dict[str, Any] | None = None) -> dict[str, Any]:
+def _prompt_serial_header(previous: dict[str, Any] | None = None, *, ctx = None) -> dict[str, Any]:
     previous = previous or {}
     return {
-        "porta_serial": _prompt("Porta serial", str(previous.get("porta_serial") or "/dev/ttyACM0")),
-        "baudrate": _prompt_int("Baudrate", _coerce_int(previous.get("baudrate"), 115200)),
+        "porta_serial": _prompt("Porta serial", str(previous.get("porta_serial") or "/dev/ttyACM0"), ctx=ctx),
+        "baudrate": _prompt_int("Baudrate", _coerce_int(previous.get("baudrate"), 115200), ctx=ctx),
         "duracao_seg": _prompt_float(
             "Duracao segundos",
             _coerce_float(previous.get("duracao_seg"), 30.0),
+            ctx=ctx,
         )
         or 30.0,
     }
@@ -734,7 +739,11 @@ def _capture_serial_snapshots(header: dict[str, Any]) -> list[dict[str, Any]]:
     )
 
 
-def _prompt(message: str, default: str = "", options: list[str] | None = None) -> str:
+def _prompt(message: str, default: str = "", options: list[str] | None = None, *, ctx: CommandContext | None = None) -> str:
+    """Prompt interativo. No TUI, usa threading.Event para não travar a UI."""
+    if ctx is not None and ctx.output_router:
+        return _tui_prompt(ctx, message, default, options)
+    # Modo legado: input() direto
     suffix = f" [{default}]" if default else ""
     if options:
         suffix += " (" + "/".join(options) + ")"
@@ -742,28 +751,42 @@ def _prompt(message: str, default: str = "", options: list[str] | None = None) -
     value = input().strip()
     value = value or default
     if options and value not in options:
-        _route_msg(ctx, "warning", "Opcao invalida: " + ", ".join(options))
+        renderer.console.print(f"Opcao invalida: {', '.join(options)}")
         return _prompt(message, default, options)
     return value
 
 
-def _prompt_float(message: str, default: float | None = None) -> float | None:
-    value = _prompt(message, "" if default is None else str(default))
+def _tui_prompt(ctx: CommandContext, message: str, default: str, options: list[str] | None) -> str:
+    """Prompt no TUI: posta PromptRequest e espera resposta via threading.Event."""
+    import threading
+    event = threading.Event()
+    result = [default]  # mutable container
+
+    ctx.output_router._post_prompt(message, default, event, result)
+
+    # Timeout de 120s para não travar indefinidamente
+    if not event.wait(timeout=120):
+        return default
+    return result[0]
+
+
+def _prompt_float(message: str, default: float | None = None, *, ctx = None) -> float | None:
+    value = _prompt(message, "" if default is None else str(default), ctx=ctx)
     return float(value) if value else None
 
 
-def _prompt_int(message: str, default: int) -> int:
-    return int(_prompt(message, str(default)))
+def _prompt_int(message: str, default: int, *, ctx = None) -> int:
+    return int(_prompt(message, str(default), ctx=ctx))
 
 
-def _prompt_bool(message: str, default: bool) -> bool:
-    value = _prompt(message, "sim" if default else "nao").lower()
+def _prompt_bool(message: str, default: bool, *, ctx = None) -> bool:
+    value = _prompt(message, "sim" if default else "nao", ctx=ctx).lower()
     if value in {"sim", "s", "yes", "y", "true", "1"}:
         return True
     if value in {"nao", "n", "no", "false", "0"}:
         return False
     _route_msg(ctx, "warning", "Responda com sim/nao ou s/n.")
-    return _prompt_bool(message, default)
+    return _prompt_bool(message, default, ctx=ctx)
 
 
 def _prompt_verticals(current: list[str] | None = None, ctx: CommandContext | None = None) -> list[str]:
@@ -771,27 +794,29 @@ def _prompt_verticals(current: list[str] | None = None, ctx: CommandContext | No
     available = ctx.measurements.get_verticals() if ctx is not None else DEFAULT_VERTICALS
     for vertical in available:
         default = True if current is None else vertical in current
-        if _prompt_bool(f"Coletar {vertical}_snapshot?", default):
+        if _prompt_bool(f"Coletar {vertical}_snapshot?", default, ctx=ctx):
             selected.append(vertical)
     if not selected:
         raise ValueError("Selecione pelo menos uma vertical TMA_DATA.")
     return sorted(normalize_verticals(selected))
 
 
-def _prompt_header_action() -> str:
+def _prompt_header_action(ctx = None) -> str:
     return _prompt(
         "Cabecalho pronto. Escolha a acao",
         "salvar",
         ["salvar", "editar", "descartar"],
+        ctx=ctx,
     )
 
 
-def _prompt_post_capture_action(*, has_snapshots: bool, has_error: bool) -> str:
+def _prompt_post_capture_action(*, has_snapshots: bool, has_error: bool, ctx = None) -> str:
     default = "refazer" if has_error or not has_snapshots else "salvar"
     return _prompt(
         "Pos-captura: salvar, descartar, sair ou refazer",
         default,
         ["salvar", "descartar", "sair", "refazer"],
+        ctx=ctx,
     )
 
 
@@ -845,7 +870,8 @@ def _summary_chat(ctx: CommandContext, args: str) -> bool:
 
 def _load_chat_session(ctx: CommandContext, args: str) -> bool:
     target = args.strip() or _prompt(
-        "Sessao de chat para carregar (id, prefixo ou vazio para mais recente)"
+        "Sessao de chat para carregar (id, prefixo ou vazio para mais recente)",
+        ctx=ctx,
     )
     try:
         if not target:
@@ -899,7 +925,7 @@ def _delete_chat_session(ctx: CommandContext, args: str) -> bool:
         return True
 
     # Confirmação interativa
-    confirm = _prompt(f"Deletar sessao {resolved}? Esta acao e irreversivel. [s/N] ").strip().lower()
+    confirm = _prompt(f"Deletar sessao {resolved}? Esta acao e irreversivel. [s/N] ", ctx=ctx).strip().lower()
     if confirm not in {"s", "sim"}:
         _route_msg(ctx, "info", "Operacao cancelada.")
         return True

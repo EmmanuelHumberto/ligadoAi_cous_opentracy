@@ -110,3 +110,8 @@ class OutputRouter:
 
     def job_progress(self, job_id: str, status: str, stage: str) -> None:
         self._post(JobProgressData(job_id, status, stage))
+
+    def _post_prompt(self, question: str, default: str, event: object, result: list) -> None:
+        """Posta PromptRequest e espera resposta (chamado via _tui_prompt)."""
+        from cous.cli.tui.events import PromptRequest
+        self._post(PromptRequest(question, default, event, result))

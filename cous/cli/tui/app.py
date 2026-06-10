@@ -10,7 +10,8 @@ from textual import on, work
 from cous.cli.tui.events import (
     ChatResponse, ChatSessionsData, DocumentsData,
     JobProgressData, LogLineData, MeasurementDetailData,
-    MeasurementsData, SearchResultsData, StatusUpdated, UserInput,
+    MeasurementsData, PromptRequest, PromptResponse,
+    SearchResultsData, StatusUpdated, UserInput,
 )
 from cous.cli.tui.output_router import OutputRouter
 from cous.cli.tui.poller import StatusPoller
@@ -74,6 +75,7 @@ class CousApp(App):
         self.ctx: object | None = None
         self.output_router: object | None = None
         self._command_router: object | None = None
+        self._active_prompt: object | None = None  # PromptRequest ativo
 
     def compose(self) -> ComposeResult:
         yield TopBar(agent_id=self.state.agent_id)
@@ -144,6 +146,16 @@ class CousApp(App):
     @on(UserInput)
     def handle_user_input(self, event: UserInput) -> None:
         text = event.text
+
+        # Se há um prompt ativo, responde a ele
+        if self._active_prompt:
+            req = self._active_prompt
+            self._active_prompt = None
+            if req.result is not None:
+                req.result[0] = text
+            if req.event is not None:
+                req.event.set()
+            return
 
         from cous.cli.tui.widgets.chat import ChatScroll
         scroll = self.query_one(ChatScroll)
@@ -380,5 +392,20 @@ class CousApp(App):
             log = self.query_one(LogPanel)
             log.add_line("info",
                 f"job={event.job_id[:8]} status={event.status} stage={event.stage}")
+        except Exception:
+            pass
+
+    @on(PromptRequest)
+    def handle_prompt_request(self, event: PromptRequest) -> None:
+        """Configura o InputBar para modo prompt."""
+        self._active_prompt = event
+        try:
+            inp = self.query_one("#chat-input")
+            placeholder = event.question
+            if event.default:
+                placeholder += f" [{event.default}]"
+            inp.placeholder = placeholder
+            inp.value = event.default
+            inp.focus()
         except Exception:
             pass

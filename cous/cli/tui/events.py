@@ -113,3 +113,24 @@ class UserInput(Message):
     def __init__(self, text: str) -> None:
         self.text = text
         super().__init__()
+
+
+class PromptRequest(Message):
+    """Requisição de prompt interativo (modo TUI)."""
+
+    def __init__(self, question: str, default: str = "", event: object = None,
+                 result: list | None = None) -> None:
+        self.question = question
+        self.default = default
+        self.event = event  # threading.Event
+        self.result = result  # list[0] = resposta
+        super().__init__()
+
+
+class PromptResponse(Message):
+    """Resposta do prompt interativo."""
+
+    def __init__(self, text: str, event: object = None) -> None:
+        self.text = text
+        self.event = event  # threading.Event para desbloquear
+        super().__init__()
