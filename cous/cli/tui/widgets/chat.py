@@ -91,20 +91,17 @@ class ChatPanel(Static):
         background: #1A3A5C;
         color: #90C8F0;
         padding: 0 1;
-        margin: 1 0 1 4;
     }
     .bubble-agent {
         background: #242528;
         border: solid #2E2F33;
         padding: 0 1;
-        margin: 1 4 1 0;
         color: #C8C8C8;
     }
     .bubble-system {
         color: #888888;
         text-style: italic;
         padding: 0 1;
-        margin: 0 0 0 2;
     }
     """
 

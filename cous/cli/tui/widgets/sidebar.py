@@ -18,7 +18,7 @@ class SidePanel(Container):
     SidePanel {
         padding: 0;
         border-bottom: solid #2E2F33;
-        max-height: 20;
+        height: 20;
     }
     SidePanel Static {
         padding: 0 1;
@@ -53,8 +53,6 @@ class Sidebar(Container):
     DEFAULT_CSS = """
     Sidebar {
         width: 28;
-        min-width: 24;
-        max-width: 36;
         background: #1E1F22;
         border-left: solid #2E2F33;
     }

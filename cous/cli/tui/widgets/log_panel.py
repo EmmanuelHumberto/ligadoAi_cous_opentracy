@@ -21,14 +21,13 @@ class LogPanel(Container):
     }
     LogPanel RichLog {
         padding: 0 1;
-        max-lines: 200;
         color: #888888;
         background: #1E1F22;
     }
     """
 
     def compose(self) -> ComposeResult:
-        yield RichLog(highlight=True, markup=True, wrap=True)
+        yield RichLog(highlight=True, markup=True, wrap=True, max_lines=200)
 
     def add_line(self, level: str, text: str) -> None:
         """Adiciona uma linha de log com ícone."""
