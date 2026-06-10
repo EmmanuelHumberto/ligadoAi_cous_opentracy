@@ -30,7 +30,7 @@ class BottomBar(Static):
         self._tokens = 0
 
     def compose(self) -> ComposeResult:
-        pass  # Static render é suficiente
+        yield from ()  # Static não precisa de filhos
 
     def on_mount(self) -> None:
         self._refresh()

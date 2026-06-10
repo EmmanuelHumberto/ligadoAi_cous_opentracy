@@ -32,7 +32,7 @@ class TopBar(Static):
         self._measurements_dot = "[#555]●[/]"
 
     def compose(self) -> ComposeResult:
-        pass  # Static render é suficiente
+        yield from ()  # Static não precisa de filhos
 
     def on_mount(self) -> None:
         self._refresh()
