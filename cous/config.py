@@ -81,6 +81,10 @@ class SystemPromptConfig(BaseModel):
     snapshot_file: str = ".cous-data/system_prompt_snapshot.md"
 
 
+class RetrieveConfig(BaseModel):
+    use_pipeline: bool = False  # True = pipeline FAISS, False = injeção manual (atual)
+
+
 class Config(BaseModel):
     opentracy: OpenTracyConfig = OpenTracyConfig()
     auth: AuthConfig = AuthConfig()
@@ -92,6 +96,7 @@ class Config(BaseModel):
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     feedback: FeedbackConfig = Field(default_factory=FeedbackConfig)
     system_prompt: SystemPromptConfig = Field(default_factory=SystemPromptConfig)
+    retrieve: RetrieveConfig = Field(default_factory=RetrieveConfig)
 
 
 def load_config(path: Path | None = None) -> Config:

@@ -61,15 +61,16 @@ def _send_chat(text: str, ctx: CommandContext) -> None:
     ctx.session.add("user", text)
     _log(ctx, "chat_user", session_id=ctx.session.session_id, text=text)
     request_text = text
-    measurement_context = ctx.measurements.chat_context(text)
-    if measurement_context:
-        request_text = (
-            "Contexto local de medicoes salvas no terminal:\n"
-            f"{measurement_context}\n\n"
-            "Use esse contexto apenas se for relevante para responder ao pedido.\n"
-            f"Pedido do operador: {text}"
-        )
-        renderer.info("Contexto local de medicoes anexado ao chat.")
+    # Fase C toggle: use_pipeline=False mantém injeção manual; True remove
+    if not getattr(ctx.config, "retrieve", None) or not ctx.config.retrieve.use_pipeline:
+        measurement_context = ctx.measurements.chat_context(text)
+        if measurement_context:
+            request_text = (
+                "Contexto local de medicoes salvas no terminal:\n"
+                f"{measurement_context}\n\n"
+                f"Pedido do operador: {text}"
+            )
+            renderer.info("Contexto local de medicoes anexado ao chat.")
     # System prompt via HistoryMessage (workaround — RunRequest não tem campo system)
     history = ctx.session.history_for_model(ctx.config.memory.max_history)
     if ctx.system_prompt_cache is not None:

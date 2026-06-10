@@ -35,3 +35,14 @@ storage_file = ".cous-data/measurements.json"
 
 [knowledge]
 poll_timeout_seconds = 120
+
+[feedback]
+storage_file = ".cous-data/feedback/records.jsonl"
+
+[system_prompt]
+cache_ttl_seconds = 300
+snapshot_file = ".cous-data/system_prompt_snapshot.md"
+
+[retrieve]
+# use_pipeline = true   # Fase C: descomente para usar FAISS em vez de injeção manual
+use_pipeline = false
