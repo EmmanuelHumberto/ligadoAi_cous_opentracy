@@ -25,14 +25,14 @@ class StatusRow(Static):
         self._detail = "-"
 
     def on_mount(self) -> None:
-        self._render()
+        self._refresh_display()
 
     def update_status(self, state: str, detail: str = "-") -> None:
         self._state = state
         self._detail = detail
-        self._render()
+        self._refresh_display()
 
-    def _render(self) -> None:
+    def _refresh_display(self) -> None:
         dots = {"ok": "[#639922]●[/]", "warn": "[#EF9F27]●[/]",
                 "down": "[#E24B4A]●[/]", "unknown": "[#555]●[/]"}
         dot = dots.get(self._state, dots["unknown"])
