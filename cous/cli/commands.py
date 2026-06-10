@@ -1042,8 +1042,11 @@ def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
         ) as tmp:
             tmp.write(markdown)
             tmp_path = tmp.name
-        ctx.knowledge.index(Path(tmp_path))
-        Path(tmp_path).unlink(missing_ok=True)
+        result = ctx.knowledge.index(Path(tmp_path))
+        # Não deleta o tmp — o runtime precisa ler o arquivo (source_uri)
+        job_id = str(result.get("job_id") or "")
+        if job_id:
+            _poll_job(ctx, job_id)
     except Exception as exc:
         renderer.warning(f"Indexacao automatica da medicao falhou: {exc}")
 
