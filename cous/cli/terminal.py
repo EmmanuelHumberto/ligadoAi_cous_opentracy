@@ -10,7 +10,7 @@ from cous.clients.knowledge import KnowledgeClient
 from cous.clients.measurements import MeasurementsClient
 from cous.clients.opentracy import OpenTracyClient
 from cous.config import Config
-from cous.logger import EventLogger
+from cous.logger import EventLogger, TraceEmitter
 
 
 def run_terminal(
@@ -20,6 +20,10 @@ def run_terminal(
     measurements: MeasurementsClient,
     conversations: ConversationStore,
     logger: EventLogger,
+    *,
+    feedback_store: object = None,
+    system_prompt_cache: object = None,
+    trace_emitter: TraceEmitter | None = None,
 ) -> None:
     session = conversations.latest_session() or conversations.create_session()
     router = build_router()
@@ -31,6 +35,9 @@ def run_terminal(
         conversations=conversations,
         session=session,
         logger=logger,
+        feedback_store=feedback_store,
+        system_prompt_cache=system_prompt_cache,
+        trace_emitter=trace_emitter,
     )
     renderer.welcome(config.opentracy.agent_id)
     renderer.info(f"Sessao de chat atual: {session.session_id}")
@@ -63,10 +70,15 @@ def _send_chat(text: str, ctx: CommandContext) -> None:
             f"Pedido do operador: {text}"
         )
         renderer.info("Contexto local de medicoes anexado ao chat.")
+    # System prompt via HistoryMessage (workaround — RunRequest não tem campo system)
+    history = ctx.session.history_for_model(ctx.config.memory.max_history)
+    if ctx.system_prompt_cache is not None:
+        system_prompt = ctx.system_prompt_cache.get()
+        history.insert(0, {"role": "system", "content": system_prompt})
     try:
         result = ctx.opentracy.chat(
             request_text,
-            history=ctx.session.history_for_model(ctx.config.memory.max_history),
+            history=history,
             session_id=ctx.session.session_id,
         )
     except ClientError as exc:
@@ -83,9 +95,22 @@ def _send_chat(text: str, ctx: CommandContext) -> None:
         text=response,
     )
     renderer.assistant(response)
-    trace_id = result.get("trace_id")
+    trace_id = str(result.get("trace_id") or "")
     if trace_id:
+        ctx.last_trace_id = trace_id
         renderer.info(f"trace_id={trace_id}")
+    # Emitir trace compatível com OpenTracy
+    if ctx.trace_emitter is not None:
+        ctx.trace_emitter.emit_chat(
+            trace_id=trace_id,
+            session_id=ctx.session.session_id,
+            channel="terminal",
+            request=text,
+            response=response,
+            duration_ms=int(result.get("duration_ms") or 0),
+            agent_version=str(result.get("agent_version") or ""),
+            stages=result.get("stages"),
+        )
     _maybe_refresh_summary(ctx)
 
 

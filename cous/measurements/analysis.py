@@ -299,3 +299,20 @@ def _fmt(value: object) -> str:
     if isinstance(value, float):
         return f"{value:.2f}"
     return str(value)
+
+
+def index_measurement_session(session: dict[str, Any]) -> tuple[str, dict[str, str]]:
+    """Gera documento markdown com sumário da medição e metadata normalizada.
+
+    Retorna (markdown, metadata) para envio ao POST /knowledge/index.
+    """
+    header = session.get("header", {})
+    markdown = build_markdown_report(session)
+    metadata = {
+        "source": "measurement",
+        "session_id": str(session.get("id", "")),
+        "machine": f"{header.get('fabricante', '')} {header.get('modelo', '')}".strip(),
+        "serial": str(header.get("numero_serie", "")),
+        "tipo_coleta": str(header.get("tipo_coleta", "")),
+    }
+    return markdown, metadata

@@ -243,3 +243,22 @@ class MockMeasurementsClient:
 
     def close(self) -> None:
         return None
+
+
+class MockFeedbackStore:
+    """Mock para FeedbackStore — registros em memória."""
+
+    def __init__(self) -> None:
+        self._records: list[dict[str, Any]] = []
+
+    def record(self, **kwargs: Any) -> Any:
+        from uuid import uuid4
+        rec: dict[str, Any] = {"id": f"fb_{uuid4().hex[:8]}", **kwargs}
+        self._records.append(rec)
+        return rec
+
+    def list_records(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return list(self._records)
+
+    def export_as_goldens(self, output_path: Path) -> int:
+        return len(self._records)

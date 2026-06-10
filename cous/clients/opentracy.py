@@ -57,6 +57,11 @@ class OpenTracyClient:
         self._auth.close()
         self._plain.close()
 
+    def get_agent_config(self) -> dict[str, Any]:
+        return self._auth.get(
+            f"{self._runtime_url}/agent/config"
+        )
+
     def _is_healthy(self, url: str) -> bool:
         try:
             return self._plain.get(url).is_success

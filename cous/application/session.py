@@ -74,6 +74,12 @@ class ChatSession:
         if self._store is not None:
             self._store.reset_session(self.session_id, self.updated_at)
 
+    def last_assistant_message(self) -> str:
+        for msg in reversed(self.history):
+            if msg.get("role") == "assistant":
+                return str(msg.get("content") or "")
+        return ""
+
 
 class ConversationStore:
     def __init__(self, conversations_dir: Path) -> None:

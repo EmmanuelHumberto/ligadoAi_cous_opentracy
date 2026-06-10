@@ -15,7 +15,10 @@ from cous.clients.measurements import MeasurementsClient
 from cous.clients.opentracy import OpenTracyClient
 from cous.config import expand_path, load_config
 from cous.application.session import ConversationStore
-from cous.mocks import MockKnowledgeClient, MockMeasurementsClient, MockOpenTracyClient
+from cous.application.feedback import FeedbackStore
+from cous.clients.system_prompt import SystemPromptCache
+from cous.logger import EventLogger, TraceEmitter
+from cous.mocks import MockFeedbackStore, MockKnowledgeClient, MockMeasurementsClient, MockOpenTracyClient
 from cous.measurements.store import MeasurementLocalStore
 
 
@@ -61,8 +64,16 @@ def main() -> None:
             MeasurementLocalStore(expand_path(config.measurements.storage_file))
         )
         conversations = ConversationStore(expand_path(config.chat.conversations_dir))
+        feedback_store = MockFeedbackStore()
+        trace_emitter = TraceEmitter(expand_path(config.logs.traces_file))
+        system_prompt_cache = SystemPromptCache(client=opentracy, config=config.system_prompt)
         try:
-            run_terminal(config, opentracy, knowledge, measurements, conversations, logger)
+            run_terminal(
+                config, opentracy, knowledge, measurements, conversations, logger,
+                feedback_store=feedback_store,
+                system_prompt_cache=system_prompt_cache,
+                trace_emitter=trace_emitter,
+            )
         finally:
             opentracy.close()
             knowledge.close()
@@ -97,8 +108,16 @@ def main() -> None:
         MeasurementLocalStore(expand_path(config.measurements.storage_file)),
     )
     conversations = ConversationStore(expand_path(config.chat.conversations_dir))
+    feedback_store = FeedbackStore(expand_path(config.feedback.storage_file))
+    trace_emitter = TraceEmitter(expand_path(config.logs.traces_file))
+    system_prompt_cache = SystemPromptCache(client=opentracy, config=config.system_prompt)
     try:
-        run_terminal(config, opentracy, knowledge, measurements, conversations, logger)
+        run_terminal(
+            config, opentracy, knowledge, measurements, conversations, logger,
+            feedback_store=feedback_store,
+            system_prompt_cache=system_prompt_cache,
+            trace_emitter=trace_emitter,
+        )
     finally:
         opentracy.close()
         knowledge.close()

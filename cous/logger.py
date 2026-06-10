@@ -59,3 +59,45 @@ class EventLogger:
 
         # Move o arquivo atual para .1 (atômico)
         os.replace(self._path, Path(str(self._path) + ".1"))
+
+
+class TraceEmitter:
+    """Emit traces in OpenTracy-compatible format for harness consumption."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def emit_chat(
+        self,
+        *,
+        trace_id: str,
+        session_id: str,
+        channel: str,
+        request: str,
+        response: str,
+        duration_ms: int,
+        agent_version: str | None = None,
+        stages: list[dict[str, object]] | None = None,
+        feedback: dict[str, object] | None = None,
+    ) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        record: dict[str, object] = {
+            "ts": utc_now_iso(),
+            "trace_id": trace_id,
+            "session_id": session_id,
+            "channel": channel,
+            "request": request[:2000],
+            "response": response[:2000],
+            "duration_ms": duration_ms,
+        }
+        if agent_version:
+            record["agent_version"] = agent_version
+        if stages:
+            record["stages"] = stages
+        if feedback:
+            record["feedback"] = feedback
+        try:
+            with self._path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=True, default=str) + "\n")
+        except OSError:
+            pass  # trace nunca derruba o terminal

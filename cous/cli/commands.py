@@ -37,6 +37,10 @@ class CommandContext:
     conversations: ConversationStore
     session: ChatSession
     logger: EventLogger
+    feedback_store: FeedbackStore | None = None
+    system_prompt_cache: SystemPromptCache | None = None
+    trace_emitter: TraceEmitter | None = None
+    last_trace_id: str = ""  # trace_id da última resposta
 
 
 class CommandRouter:
@@ -102,6 +106,9 @@ def build_router() -> CommandRouter:
     router.register("listar", _list_chat_sessions, "Lista sessoes de chat", aliases=["ls"])
     router.register("deletar_chat", _delete_chat_session, "Remove permanentemente uma sessao de chat do disco")
     router.register("exportar", _export_chat_session, "Exporta uma sessao de chat como arquivo Markdown")
+    router.register("confirmar", _confirm_feedback, "Confirma que a ultima resposta esta correta")
+    router.register("corrigir", _correct_feedback, "Registra correcao para a ultima resposta")
+    router.register("solucao", _solution_feedback, "Registra solucao aplicada apos diagnostico")
     return router
 
 
@@ -887,6 +894,66 @@ def _export_chat_session(ctx: CommandContext, args: str) -> bool:
     return True
 
 
+def _confirm_feedback(ctx: CommandContext, args: str) -> bool:
+    """Registra que a última resposta do agente estava correta."""
+    if ctx.feedback_store is None:
+        renderer.error("Feedback nao configurado.")
+        return True
+    comment = args.strip() or ctx.session.last_assistant_message()
+    ctx.feedback_store.record(
+        feedback_type="confirmed",
+        session_id=ctx.session.session_id,
+        trace_id=ctx.last_trace_id,
+        content=comment,
+        original_response=ctx.session.last_assistant_message(),
+    )
+    ctx.logger.log("feedback_confirmed", session_id=ctx.session.session_id, trace_id=ctx.last_trace_id)
+    renderer.success("Feedback registrado: resposta confirmada.")
+    return True
+
+
+def _correct_feedback(ctx: CommandContext, args: str) -> bool:
+    """Registra uma correção para a última resposta do agente."""
+    if ctx.feedback_store is None:
+        renderer.error("Feedback nao configurado.")
+        return True
+    correction = args.strip()
+    if not correction:
+        renderer.error("Uso: /corrigir <texto da correcao>")
+        return True
+    ctx.feedback_store.record(
+        feedback_type="correction",
+        session_id=ctx.session.session_id,
+        trace_id=ctx.last_trace_id,
+        content=correction,
+        original_response=ctx.session.last_assistant_message(),
+    )
+    ctx.logger.log("feedback_correction", session_id=ctx.session.session_id, trace_id=ctx.last_trace_id)
+    renderer.success("Feedback registrado: correcao aplicada.")
+    return True
+
+
+def _solution_feedback(ctx: CommandContext, args: str) -> bool:
+    """Registra uma solução aplicada após diagnóstico."""
+    if ctx.feedback_store is None:
+        renderer.error("Feedback nao configurado.")
+        return True
+    solution = args.strip()
+    if not solution:
+        renderer.error("Uso: /solucao <descricao da solucao>")
+        return True
+    ctx.feedback_store.record(
+        feedback_type="solution_applied",
+        session_id=ctx.session.session_id,
+        trace_id=ctx.last_trace_id,
+        content=solution,
+        original_response=ctx.session.last_assistant_message(),
+    )
+    ctx.logger.log("feedback_solution", session_id=ctx.session.session_id, trace_id=ctx.last_trace_id)
+    renderer.success("Feedback registrado: solucao aplicada.")
+    return True
+
+
 def _sync_measurements(ctx: CommandContext, args: str) -> bool:
     target = args.strip()
     if target:
@@ -963,6 +1030,22 @@ def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
         "Sessao sincronizada com o backend de medicoes: "
         f"remote_id={synced.get('remote_id') or '-'}"
     )
+    # Indexar sumário da medição no knowledge base (Fase B)
+    try:
+        from cous.measurements.analysis import index_measurement_session
+        from pathlib import Path
+        import tempfile
+        session = ctx.measurements.get_session(session_id)
+        markdown, metadata = index_measurement_session(session)
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", encoding="utf-8", delete=False
+        ) as tmp:
+            tmp.write(markdown)
+            tmp_path = tmp.name
+        ctx.knowledge.index(Path(tmp_path))
+        Path(tmp_path).unlink(missing_ok=True)
+    except Exception as exc:
+        renderer.warning(f"Indexacao automatica da medicao falhou: {exc}")
 
 
 def build_chat_summary(ctx: CommandContext) -> str:

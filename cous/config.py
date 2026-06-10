@@ -69,6 +69,16 @@ class LogsConfig(BaseModel):
     events_file: str = ".cous-data/logs/events.jsonl"
     max_size_mb: int = 10
     backup_count: int = 3
+    traces_file: str = ".cous-data/logs/traces.jsonl"
+
+
+class FeedbackConfig(BaseModel):
+    storage_file: str = ".cous-data/feedback/records.jsonl"
+
+
+class SystemPromptConfig(BaseModel):
+    cache_ttl_seconds: int = 300
+    snapshot_file: str = ".cous-data/system_prompt_snapshot.md"
 
 
 class Config(BaseModel):
@@ -80,6 +90,8 @@ class Config(BaseModel):
     mcp: MpcConfig = MpcConfig()
     logs: LogsConfig = Field(default_factory=LogsConfig)
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
+    feedback: FeedbackConfig = Field(default_factory=FeedbackConfig)
+    system_prompt: SystemPromptConfig = Field(default_factory=SystemPromptConfig)
 
 
 def load_config(path: Path | None = None) -> Config:

@@ -36,6 +36,9 @@ def make_context(tmp_path):
             conversations=conversations,
             session=session,
             logger=logger,
+            feedback_store=None,
+            system_prompt_cache=None,
+            trace_emitter=None,
         )
 
     return _factory
