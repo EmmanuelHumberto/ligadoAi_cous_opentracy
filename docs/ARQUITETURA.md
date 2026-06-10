@@ -35,8 +35,8 @@
 ### 1.1 Como a UI web consome o OpenTracy
 
 ```
-┌───────────┐   POST /v1/webhook    ┌───────────┐   POST /run    ┌──────────────┐
-│  UI web   │ ────────────────────→ │ Backend   │ ─────────────→ │  Runtime     │
+┌───────────┐   POST /v1/webhook    ┌───────────┐   POST /run   ┌──────────────┐
+│  UI web   │ ────────────────────→ │ Backend   │ ─────────────→│  Runtime     │
 │ (React)   │  {request, history}   │ (Hono/TS) │               │  (Python)    │
 │           │                       │           │               │              │
 │           │                       │           │               │ agent.yaml → │
@@ -45,11 +45,11 @@
 │           │                       │           │               │  route       │
 │           │                       │           │               │  generate    │
 │           │                       │           │               │              │
-│           │ ←── response ──────── │ ←─────── │               │ system.md    │
-│           │  {response,           │          │               │ FAISS index  │
-│           │   trace_id,           │          │               │ traces/      │
-│           │   duration_ms,        │          │               │              │
-│           │   stages[]}           │          │               │              │
+│           │ ←── response ──────── │ ←───────  │               │ system.md    │
+│           │  {response,           │           │               │ FAISS index  │
+│           │   trace_id,           │           │               │ traces/      │
+│           │   duration_ms,        │           │               │              │
+│           │   stages[]}           │           │               │              │
 └───────────┘                       └───────────┘               └──────────────┘
 ```
 
@@ -62,7 +62,7 @@ A UI web:
 ### 1.2 Como o Cous consome o OpenTracy hoje
 
 ```
-┌───────────┐   POST /v1/api/{agent}/chat   ┌───────────┐
+┌───────────┐   POST /v1/api/{agent}/chat    ┌───────────┐
 │  Cous     │ ─────────────────────────────→ │ Backend   │
 │(terminal) │  {request, history, channel}   │ (Hono/TS) │
 │           │                                │           │
@@ -291,48 +291,48 @@ A migração de JSONL → PostgreSQL deve ocorrer quando o volume de dados justi
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Camada 1 — Aquisição Operacional (Cous)                      │
-│                                                              │
+│ Camada 1 — Aquisição Operacional (Cous)                     │
+│                                                             │
 │ • Captura serial TMA_DATA (hall, power, course, vibration)  │
-│ • Persistência local → PostgreSQL (memória operacional)      │
-│ • Terminal interativo                                        │
-│ • Sincronização com runtime                                  │
-│ • Indexação de medições como documentos na base FAISS        │
-│ • Registro de feedback humano                                │
-│ • Integração com fontes de dados técnicas                    │
-│                                                              │
-│ Interface → Camada 2:                                        │
+│ • Persistência local → PostgreSQL (memória operacional)     │
+│ • Terminal interativo                                       │
+│ • Sincronização com runtime                                 │
+│ • Indexação de medições como documentos na base FAISS       │
+│ • Registro de feedback humano                               │
+│ • Integração com fontes de dados técnicas                   │
+│                                                             │
+│ Interface → Camada 2:                                       │
 │   POST /chat {request, history, system}                     │
-│   POST /knowledge/index {documento}                          │
-│   POST /measurements/sessions {header, snapshots}            │
+│   POST /knowledge/index {documento}                         │
+│   POST /measurements/sessions {header, snapshots}           │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Camada 2 — Inteligência (OpenTracy runtime)                  │
-│                                                              │
-│ • Pipeline retrieve → rerank → route → generate              │
-│ • System prompt (system.md) — superfície treinável           │
-│ • Memory (janela 20, sumarização 50)                         │
+│ Camada 2 — Inteligência (OpenTracy runtime)                 │
+│                                                             │
+│ • Pipeline retrieve → rerank → route → generate             │
+│ • System prompt (system.md) — superfície treinável          │
+│ • Memory (janela 20, sumarização 50)                        │
 │ • Traces (por canal, com stages: docs_in/out, modelo, ms)   │
-│                                                              │
-│ Interface → Camada 3:                                        │
+│                                                             │
+│ Interface → Camada 3:                                       │
 │   traces/ → alimenta o harness                              │
-│   agent/ → superfície mutável                                │
-│   evals/ → avaliação de qualidade                            │
+│   agent/ → superfície mutável                               │
+│   evals/ → avaliação de qualidade                           │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Camada 3 — Evolução (OpenTracy harness)                      │
-│                                                              │
-│ • Proposer: sugere melhorias baseado em traces reais         │
-│ • Critics: avalia pontos fortes e fracos                     │
-│ • Evals: testa com goldens + detecção de regressão           │
-│ • Approver: KEEP / IMPROVE / ROLLBACK_AND_PIVOT              │
-│ • Executor: aplica patches versionados em agent/             │
-│                                                              │
-│ Ciclo: traces → proposta → avaliação → patch → novos traces  │
+│ Camada 3 — Evolução (OpenTracy harness)                     │
+│                                                             │
+│ • Proposer: sugere melhorias baseado em traces reais        │
+│ • Critics: avalia pontos fortes e fracos                    │
+│ • Evals: testa com goldens + detecção de regressão          │
+│ • Approver: KEEP / IMPROVE / ROLLBACK_AND_PIVOT             │
+│ • Executor: aplica patches versionados em agent/            │
+│                                                             │
+│ Ciclo: traces → proposta → avaliação → patch → novos traces │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -1002,17 +1002,17 @@ Este apêndice traça o percurso de um único dado operacional — uma medição
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                                                                          │
 │  [1] DADO BRUTO                                                          │
-│  "hall:freq=125.27Hz,rpm=7516,duty=544 power:V=7998mV,I=-85mA"          │
+│  "hall:freq=125.27Hz,rpm=7516,duty=544 power:V=7998mV,I=-85mA"           │
 │  Capturado via serial TMA_DATA, sem interpretação.                       │
 │  │                                                                       │
 │  ▼                                                                       │
 │  [2] DADO ESTRUTURADO                                                    │
-│  {type:"hall_snapshot", frequency_hz:125.27, rpm:7516.08, ...}          │
+│  {type:"hall_snapshot", frequency_hz:125.27, rpm:7516.08, ...}           │
 │  Validado, normalizado, persistido em JSON local.                        │
 │  │                                                                       │
 │  ▼                                                                       │
 │  [3] SUMÁRIO DE DOMÍNIO                                                  │
-│  "Phantom x1: freq_media=125.27Hz, rpm_media=7516,                      │
+│  "Phantom x1: freq_media=125.27Hz, rpm_media=7516,                       │
 │   vibração: RMS=900.46mg, pico=1250mg"                                   │
 │  Indexado como documento no FAISS. O pipeline retrieve pode encontrá-lo. │
 │  │                                                                       │
@@ -1027,12 +1027,12 @@ Este apêndice traça o percurso de um único dado operacional — uma medição
 │  │                                                                       │
 │  ▼                                                                       │
 │  [6] FEEDBACK VALIDADO                                                   │
-│  Técnico: "Troquei a bucha, vibração caiu para 300mg."                  │
+│  Técnico: "Troquei a bucha, vibração caiu para 300mg."                   │
 │  /confirmar → FeedbackStore → trace → promote-to-golden.                 │
 │  │                                                                       │
 │  ▼                                                                       │
 │  [7] CONHECIMENTO INSTITUCIONAL                                          │
-│  Golden: "vibração >800mg → verificar bucha (evidência: Phantom x1,     │
+│  Golden: "vibração >800mg → verificar bucha (evidência: Phantom x1,      │
 │  série 1212, resolvido com troca)". Harness usa em evals e propostas.    │
 │                                                                          │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -1064,10 +1064,10 @@ O harness de auto-melhoria do OpenTracy opera em um espectro, não em modo biná
 ```
 Fully Supervised ──→ Gate-Guarded ──→ Eval-Driven ──→ Continuous
         │                   │                │
-        │   Cobertura de    │   Taxa de       │   Sem regressão
-        │   goldens > 50    │   falsos         │   em 30+ iterações
-        │   casos           │   positivos      │   consecutivas
-        │                   │   < 5%           │
+        │   Cobertura de    │   Taxa de      │   Sem regressão
+        │   goldens > 50    │   falsos       │   em 30+ iterações
+        │   casos           │   positivos    │   consecutivas
+        │                   │   < 5%         │
         ▼                   ▼                ▼
    Modo inicial         Após 3 meses     Após 6+ meses
    (Fase A-D)           operação         operação estável
