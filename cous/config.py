@@ -10,6 +10,14 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 
+class TuiConfig(BaseModel):
+    """Configuração do modo TUI (Textual)."""
+    enabled: bool = True
+    sidebar_width: int = 28
+    status_poll_interval: int = 15
+    log_max_lines: int = 200
+
+
 class OpenTracyConfig(BaseModel):
     backend_url: str = "http://127.0.0.1:8002"
     runtime_url: str = "http://127.0.0.1:8001"
@@ -92,6 +100,7 @@ class Config(BaseModel):
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     feedback: FeedbackConfig = Field(default_factory=FeedbackConfig)
     system_prompt: SystemPromptConfig = Field(default_factory=SystemPromptConfig)
+    tui: TuiConfig = Field(default_factory=TuiConfig)
 
 
 def load_config(path: Path | None = None) -> Config:

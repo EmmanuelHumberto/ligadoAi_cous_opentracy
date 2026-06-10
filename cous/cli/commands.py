@@ -41,6 +41,7 @@ class CommandContext:
     system_prompt_cache: SystemPromptCache | None = None
     trace_emitter: TraceEmitter | None = None
     last_trace_id: str = ""  # trace_id da última resposta
+    output_router: "OutputRouter | None" = None  # populado no TUI em on_mount()
 
 
 class CommandRouter:

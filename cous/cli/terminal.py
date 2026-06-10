@@ -25,6 +25,86 @@ def run_terminal(
     system_prompt_cache: object = None,
     trace_emitter: TraceEmitter | None = None,
 ) -> None:
+    """Detecta se o terminal suporta TUI e escolhe o modo.
+
+    Modo TUI (Textual): ativado quando o terminal é interativo (TTY),
+    a flag COUS_NO_TUI não está setada, e config.tui.enabled == True.
+    Modo legado: fallback para pipes, CI, ou --no-tui explícito.
+    """
+    if _should_use_tui(config):
+        _run_tui(
+            config, opentracy, knowledge, measurements, conversations, logger,
+            feedback_store=feedback_store,
+            system_prompt_cache=system_prompt_cache,
+            trace_emitter=trace_emitter,
+        )
+    else:
+        _run_legacy(
+            config, opentracy, knowledge, measurements, conversations, logger,
+            feedback_store=feedback_store,
+            system_prompt_cache=system_prompt_cache,
+            trace_emitter=trace_emitter,
+        )
+
+
+def _should_use_tui(config: Config) -> bool:
+    """Decide se o modo TUI deve ser ativado."""
+    import os
+    import sys
+
+    if os.environ.get("COUS_NO_TUI"):
+        return False
+    if not sys.stdout.isatty():
+        return False
+    try:
+        import textual  # noqa: F401
+    except ImportError:
+        return False
+    return getattr(config, "tui", None) and config.tui.enabled
+
+
+def _run_tui(
+    config: Config,
+    opentracy: OpenTracyClient,
+    knowledge: KnowledgeClient,
+    measurements: MeasurementsClient,
+    conversations: ConversationStore,
+    logger: EventLogger,
+    *,
+    feedback_store: object = None,
+    system_prompt_cache: object = None,
+    trace_emitter: TraceEmitter | None = None,
+) -> None:
+    """Inicia o modo TUI com Textual."""
+    from cous.cli.tui.app import CousApp
+
+    app = CousApp(
+        config=config,
+        opentracy=opentracy,
+        knowledge=knowledge,
+        measurements=measurements,
+        conversations=conversations,
+        logger=logger,
+        feedback_store=feedback_store,
+        system_prompt_cache=system_prompt_cache,
+        trace_emitter=trace_emitter,
+    )
+    app.run()
+
+
+def _run_legacy(
+    config: Config,
+    opentracy: OpenTracyClient,
+    knowledge: KnowledgeClient,
+    measurements: MeasurementsClient,
+    conversations: ConversationStore,
+    logger: EventLogger,
+    *,
+    feedback_store: object = None,
+    system_prompt_cache: object = None,
+    trace_emitter: TraceEmitter | None = None,
+) -> None:
+    """Loop legado — idêntico ao comportamento atual."""
     session = conversations.latest_session() or conversations.create_session()
     router = build_router()
     ctx = CommandContext(
