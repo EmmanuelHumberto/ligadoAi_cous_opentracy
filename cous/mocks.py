@@ -188,16 +188,32 @@ class MockMeasurementsClient:
         session["last_sync_error"] = ""
         return self._store.replace_session(session)
 
-    def sync_pending_sessions(self) -> list[dict[str, Any]]:
+    def sync_pending_sessions(
+        self,
+        *,
+        on_progress: Callable[[int, int, str], None] | None = None,
+    ) -> dict[str, Any]:
         synced: list[dict[str, Any]] = []
-        for session in self._store.full_sessions():
-            if str(session.get("status") or "") not in {"saved", "diagnosed", "reported"}:
-                continue
-            if str(session.get("sync_status") or "") == "mock_synced":
-                continue
-            synced.append(self.sync_session(str(session.get("id"))))
-        return synced
-
+        failed: list[dict[str, str]] = []
+        candidates = [
+            s for s in self._store.full_sessions()
+            if str(s.get("status") or "") in {"saved", "diagnosed", "reported"}
+            and str(s.get("sync_status") or "") != "synced"
+        ]
+        for idx, session in enumerate(candidates):
+            session_id = str(session.get("id"))
+            if on_progress is not None:
+                on_progress(idx, len(candidates), f"Sincronizando {session_id[:12]}...")
+            try:
+                synced.append(self.sync_session(session_id))
+            except Exception as exc:
+                failed.append({"session_id": session_id, "error": str(exc)})
+        return {
+            "synced": synced,
+            "failed": failed,
+            "synced_count": len(synced),
+            "failed_count": len(failed),
+        }
     def diagnose(self, session_id: str) -> dict[str, Any]:
         session = self.get_session(session_id)
         diagnostic = {

@@ -67,6 +67,7 @@ def _send_chat(text: str, ctx: CommandContext) -> None:
         result = ctx.opentracy.chat(
             request_text,
             history=ctx.session.history_for_model(ctx.config.memory.max_history),
+            session_id=ctx.session.session_id,
         )
     except ClientError as exc:
         _log(ctx, "chat_error", session_id=ctx.session.session_id, error=str(exc))

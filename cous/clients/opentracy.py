@@ -34,10 +34,13 @@ class OpenTracyClient:
         *,
         history: list[dict[str, str]] | None = None,
         channel: str = "terminal",
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"request": request, "channel": channel}
         if history:
             payload["history"] = history
+        if session_id:
+            payload["session_id"] = session_id
         return self._auth.post(
             f"{self._backend_url}/v1/api/{self._config.agent_id}/chat",
             payload,

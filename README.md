@@ -2,6 +2,8 @@
 
 Cliente terminal fino para o OpenTracy.
 
+> 📄 **Documento de arquitetura do ecossistema:** [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) — define OpenTracy como motor cognitivo e Cous como interface operacional especializada.
+
 Este repositório substitui o Cous legado. O legado em
 `../opentracy-terminal-chat` deve ser usado apenas como referência de UX e
 contratos, nunca como base de código.
