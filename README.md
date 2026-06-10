@@ -15,11 +15,17 @@ O novo Cous faz:
 - terminal interativo com Rich;
 - autenticação por token Bearer;
 - chat com o agente via backend do OpenTracy;
+- system prompt do agente carregado via `GET /agent/config` com cache TTL;
+- pipeline retrieve (RAG) para busca de medições indexadas no FAISS;
 - persistência local de sessões de chat em JSONL;
 - resumo manual e automático de conversa;
 - logs JSONL de eventos do terminal;
-- comandos de knowledge (`/indexar`, `/buscar`, `/validar`, `/status`);
-- captura, persistência local e sincronização de medições.
+- traces compatíveis com OpenTracy em `.cous-data/logs/traces.jsonl`;
+- comandos de knowledge (`/indexar`, `/buscar`, `/validar`, `/indexados`, `/remover`);
+- captura, persistência local e sincronização de medições;
+- indexação automática de medições no FAISS após cada `/capturar`;
+- feedback humano estruturado (`/confirmar`, `/corrigir`, `/solucao`);
+- promoção de feedback confirmado a golden no runtime.
 
 O novo Cous não faz:
 
@@ -41,6 +47,10 @@ Por padrão o cliente grava dados em `.cous-data/`:
   - `summary` é usado como contexto comprimido nas próximas chamadas ao agente.
 - `.cous-data/measurements.json`
   - store local de medições antes ou depois da sincronização remota.
+- `.cous-data/logs/events.jsonl` — log de eventos do terminal.
+- `.cous-data/logs/traces.jsonl` — traces compatíveis com OpenTracy (canal "terminal").
+- `.cous-data/feedback/records.jsonl` — feedback humano estruturado.
+- `.cous-data/system_prompt_snapshot.md` — snapshot local do system prompt (fallback).
 
 ## Requisitos
 
@@ -125,9 +135,22 @@ restart_backoff_seconds = 5
 
 [logs]
 events_file = ".cous-data/logs/events.jsonl"
+max_size_mb = 10
+backup_count = 3
+traces_file = ".cous-data/logs/traces.jsonl"
 
 [measurements]
 storage_file = ".cous-data/measurements.json"
+
+[knowledge]
+poll_timeout_seconds = 120
+
+[feedback]
+storage_file = ".cous-data/feedback/records.jsonl"
+
+[system_prompt]
+cache_ttl_seconds = 300
+snapshot_file = ".cous-data/system_prompt_snapshot.md"
 ```
 
 Parâmetros relevantes:
@@ -142,8 +165,11 @@ Parâmetros relevantes:
   - store local de medições.
 - `mcp.*`
   - reserva a configuração operacional do cliente para integrações MCP.
-- `logs.events_file`
-  - arquivo JSONL onde o terminal grava eventos de sessão, comandos, chat e resumo.
+- `logs.events_file` — arquivo JSONL onde o terminal grava eventos de sessão, comandos, chat e resumo.
+- `logs.traces_file` — arquivo JSONL de traces compatíveis com o OpenTracy.
+- `feedback.storage_file` — arquivo JSONL de feedback humano (`/confirmar`, `/corrigir`, `/solucao`).
+- `system_prompt.cache_ttl_seconds` — TTL do cache do system prompt (padrão 300s).
+- `knowledge.poll_timeout_seconds` — timeout do polling de jobs de indexação.
 
 ## Execução
 
@@ -245,6 +271,20 @@ Resumo automático:
 - `/remover <document_id>`
   - remove documento indexado;
   - se não receber argumento, pergunta interativamente.
+
+## Feedback humano
+
+Comandos de feedback estruturado para evolução do agente:
+
+- `/confirmar [comentario]`
+  - confirma que a última resposta do agente está correta;
+  - o trace da conversa é promovido a golden no runtime.
+- `/corrigir <texto>`
+  - registra uma correção para a última resposta do agente.
+- `/solucao <descricao>`
+  - registra uma solução aplicada após diagnóstico.
+
+O feedback é persistido em `.cous-data/feedback/records.jsonl` e exportável como goldens.
 
 ## Medições
 
@@ -386,4 +426,5 @@ Implementado:
 
 Ainda em aberto:
 
+- migração PostgreSQL (Fase F) e configuração do harness (Fase G) — consulte [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
 - a captura serial segue Linux-only por usar `termios`/`select`.
