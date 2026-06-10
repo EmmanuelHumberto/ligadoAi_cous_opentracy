@@ -75,7 +75,9 @@ def _validate_snapshot(snapshot: dict[str, Any], allowed_types: set[str]) -> lis
     if "type" not in snapshot:
         errors.append("campo type ausente")
     timestamp = snapshot.get("timestamp_us")
-    if timestamp is not None:
+    if timestamp is None:
+        errors.append("campo timestamp_us obrigatorio")
+    else:
         try:
             if int(timestamp) < 0:
                 errors.append("timestamp_us deve ser >= 0")

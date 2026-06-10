@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from collections.abc import Callable, Iterable
@@ -12,6 +13,7 @@ from typing import Any, BinaryIO
 from cous.measurements.constants import DEFAULT_VERTICALS, TYPE_ALIASES as _TYPE_ALIASES
 
 TMA_PREFIX = "TMA_DATA "
+_logger = logging.getLogger("cous.serial")
 
 
 def normalize_snapshot_type(value: object) -> str:
@@ -36,6 +38,7 @@ def parse_tma_data_line(line: str) -> dict[str, Any] | None:
     try:
         data = json.loads(payload)
     except json.JSONDecodeError:
+        _logger.warning("TMA_DATA com JSON malformado: %.80s", payload)
         return None
     return data if isinstance(data, dict) else None
 

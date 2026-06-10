@@ -63,7 +63,12 @@ class OpenTracyClient:
         )
 
     def promote_to_golden(self, trace_id: str) -> dict[str, Any]:
-        """Promove um trace a golden (Fase E)."""
+        """Promove um trace a golden (Fase E).
+
+        Usa backend_url (porta 8002) — o endpoint de goldens está no backend
+        TypeScript, não no runtime Python. Diferente de get_agent_config() que
+        usa runtime_url (porta 8001).
+        """
         return self._auth.post(
             f"{self._backend_url}/v1/evals/goldens/promote-from-trace/{trace_id}",
             {},

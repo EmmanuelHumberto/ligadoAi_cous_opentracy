@@ -28,6 +28,7 @@ class FeedbackRecord:
     measurement_id: str | None = None
     content: str = ""
     original_response: str = ""
+    user_request: str = ""  # pergunta original do operador
     timestamp: str = field(default_factory=_utc_now_iso)
 
 
@@ -47,6 +48,7 @@ class FeedbackStore:
         trace_id: str = "",
         content: str = "",
         original_response: str = "",
+        user_request: str = "",
         measurement_id: str | None = None,
     ) -> FeedbackRecord:
         rec = FeedbackRecord(
@@ -57,6 +59,7 @@ class FeedbackStore:
             measurement_id=measurement_id,
             content=content,
             original_response=original_response,
+            user_request=user_request,
         )
         self._path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -71,6 +74,7 @@ class FeedbackStore:
                             "measurement_id": rec.measurement_id,
                             "content": rec.content,
                             "original_response": rec.original_response,
+                            "user_request": rec.user_request,
                             "timestamp": rec.timestamp,
                         },
                         ensure_ascii=True,
@@ -107,6 +111,7 @@ class FeedbackStore:
                     measurement_id=item.get("measurement_id"),
                     content=str(item.get("content") or ""),
                     original_response=str(item.get("original_response") or ""),
+                    user_request=str(item.get("user_request") or ""),
                     timestamp=str(item.get("timestamp") or ""),
                 )
             )
@@ -115,7 +120,11 @@ class FeedbackStore:
         return records
 
     def export_as_goldens(self, output_path: Path) -> int:
-        """Exporta registros confirmed como NDJSON compatível com datasets/goldens."""
+        """Exporta registros confirmed como NDJSON compatível com datasets/goldens.
+
+        question = pergunta original do operador (user_request)
+        expected = resposta do agente que foi confirmada (original_response)
+        """
         confirmed = self.list_records(feedback_type="confirmed")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         count = 0
@@ -124,8 +133,8 @@ class FeedbackStore:
                 handle.write(
                     json.dumps(
                         {
-                            "question": rec.original_response,
-                            "expected": rec.content,
+                            "question": rec.user_request or rec.original_response,
+                            "expected": rec.original_response,
                             "source": "terminal_feedback",
                             "feedback_id": rec.id,
                             "session_id": rec.session_id,

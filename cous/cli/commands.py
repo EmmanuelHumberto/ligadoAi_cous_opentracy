@@ -959,6 +959,7 @@ def _confirm_feedback(ctx: CommandContext, args: str) -> bool:
         trace_id=trace_id,
         content=comment,
         original_response=ctx.session.last_assistant_message(),
+        user_request=ctx.session.last_user_message(),
     )
     ctx.logger.log("feedback_confirmed", session_id=ctx.session.session_id, trace_id=trace_id)
     renderer.success(f"Feedback registrado: resposta confirmada (trace_id={trace_id}).")
@@ -997,6 +998,7 @@ def _correct_feedback(ctx: CommandContext, args: str) -> bool:
         trace_id=ctx.last_trace_id,
         content=correction,
         original_response=ctx.session.last_assistant_message(),
+        user_request=ctx.session.last_user_message(),
     )
     ctx.logger.log("feedback_correction", session_id=ctx.session.session_id, trace_id=ctx.last_trace_id)
     renderer.success("Feedback registrado: correcao aplicada.")
@@ -1018,6 +1020,7 @@ def _solution_feedback(ctx: CommandContext, args: str) -> bool:
         trace_id=ctx.last_trace_id,
         content=solution,
         original_response=ctx.session.last_assistant_message(),
+        user_request=ctx.session.last_user_message(),
     )
     ctx.logger.log("feedback_solution", session_id=ctx.session.session_id, trace_id=ctx.last_trace_id)
     renderer.success("Feedback registrado: solucao aplicada.")

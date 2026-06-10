@@ -80,6 +80,12 @@ class ChatSession:
                 return str(msg.get("content") or "")
         return ""
 
+    def last_user_message(self) -> str:
+        for msg in reversed(self.history):
+            if msg.get("role") == "user":
+                return str(msg.get("content") or "")
+        return ""
+
 
 class ConversationStore:
     def __init__(self, conversations_dir: Path) -> None:

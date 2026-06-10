@@ -62,7 +62,15 @@ class EventLogger:
 
 
 class TraceEmitter:
-    """Emit traces in OpenTracy-compatible format for harness consumption."""
+    """Emit traces in OpenTracy-compatible format for harness consumption.
+
+    Os traces são escritos em um arquivo JSONL local (.cous-data/logs/traces.jsonl).
+    Este arquivo NÃO é consumido diretamente pelo harness do OpenTracy — o harness
+    lê de traces/raw/*.jsonl no diretório do runtime. O canal "terminal" trafega
+    pelo fluxo normal: Cous → backend → runtime → traces/raw/ (onde o harness lê).
+
+    O arquivo local serve como backup e auditoria offline.
+    """
 
     def __init__(self, path: Path) -> None:
         self._path = path
