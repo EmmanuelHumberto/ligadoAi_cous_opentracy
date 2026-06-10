@@ -62,6 +62,13 @@ class OpenTracyClient:
             f"{self._runtime_url}/agent/config"
         )
 
+    def promote_to_golden(self, trace_id: str) -> dict[str, Any]:
+        """Promove um trace a golden (Fase E)."""
+        return self._auth.post(
+            f"{self._backend_url}/v1/evals/goldens/promote-from-trace/{trace_id}",
+            {},
+        )
+
     def _is_healthy(self, url: str) -> bool:
         try:
             return self._plain.get(url).is_success

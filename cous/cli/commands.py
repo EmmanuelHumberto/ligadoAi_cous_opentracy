@@ -909,6 +909,12 @@ def _confirm_feedback(ctx: CommandContext, args: str) -> bool:
     )
     ctx.logger.log("feedback_confirmed", session_id=ctx.session.session_id, trace_id=ctx.last_trace_id)
     renderer.success("Feedback registrado: resposta confirmada.")
+    # Fase E: promover trace a golden no runtime
+    if ctx.last_trace_id:
+        try:
+            ctx.opentracy.promote_to_golden(ctx.last_trace_id)
+        except Exception as exc:
+            renderer.warning(f"Promocao a golden falhou: {exc}")
     return True
 
 
