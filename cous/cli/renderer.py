@@ -78,11 +78,13 @@ def documents_table(documents: list[dict]) -> None:
 def search_results(results: list[dict]) -> None:
     table = Table(title="Busca", show_header=True)
     table.add_column("Score", justify="right")
+    table.add_column("Doc ID", style="bold cyan")
     table.add_column("Fonte")
     table.add_column("Trecho")
     for result in results:
         table.add_row(
             f"{float(result.get('score', 0)):.2f}",
+            str(result.get("document_id", ""))[:8],
             str(result.get("source_uri") or "-"),
             str(result.get("text") or "")[:120],
         )

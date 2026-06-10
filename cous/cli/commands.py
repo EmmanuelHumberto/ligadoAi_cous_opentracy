@@ -353,11 +353,38 @@ def _delete(ctx: CommandContext, args: str) -> bool:
         renderer.error("Uso: /remover <document_id>")
         return True
     try:
+        # Se parece um prefixo (não um UUID completo), busca nos documentos
+        if len(document_id) < 32 and not _looks_like_full_uuid(document_id):
+            resolved = _resolve_document_id(ctx, document_id)
+            if resolved is None:
+                renderer.error(f"Nenhum documento encontrado com prefixo: {document_id}")
+                return True
+            if len(resolved) > 1:
+                renderer.info(f"Multiplos documentos encontrados. Use o ID completo:")
+                for doc_id in resolved:
+                    renderer.info(f"  {doc_id}")
+                return True
+            document_id = resolved[0]
         ctx.knowledge.delete_document(document_id)
         renderer.success(f"Documento removido: {document_id}")
     except ClientError as exc:
         renderer.error(str(exc))
     return True
+
+
+def _resolve_document_id(ctx: CommandContext, prefix: str) -> list[str] | None:
+    """Busca documentos cujo ID começa com o prefixo."""
+    try:
+        docs = ctx.knowledge.list_documents()
+        matches = [d.get("id", "") for d in docs if str(d.get("id", "")).startswith(prefix)]
+        return matches if matches else None
+    except ClientError:
+        return None
+
+
+def _looks_like_full_uuid(value: str) -> bool:
+    import re
+    return bool(re.match(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$', value))
 
 
 def _measurements(ctx: CommandContext, args: str) -> bool:
@@ -895,27 +922,64 @@ def _export_chat_session(ctx: CommandContext, args: str) -> bool:
 
 
 def _confirm_feedback(ctx: CommandContext, args: str) -> bool:
-    """Registra que a última resposta do agente estava correta."""
+    """Confirma que uma resposta do agente estava correta.
+    
+    Uso:
+      /confirmar                        confirma a última resposta
+      /confirmar <trace_id> [coment]    confirma uma resposta específica pelo trace_id
+    """
     if ctx.feedback_store is None:
         renderer.error("Feedback nao configurado.")
         return True
-    comment = args.strip() or ctx.session.last_assistant_message()
+
+    args = args.strip()
+    trace_id = ctx.last_trace_id
+    comment = ""
+
+    if args:
+        # Se o primeiro token parece um UUID/trace_id, usa ele
+        parts = args.split(maxsplit=1)
+        first = parts[0]
+        if _looks_like_trace_id(first):
+            trace_id = first
+            comment = parts[1] if len(parts) > 1 else ""
+        else:
+            comment = args
+
+    if not comment:
+        comment = ctx.session.last_assistant_message()
+
+    if not trace_id:
+        renderer.error("Nenhuma resposta disponivel para confirmar.")
+        return True
+
     ctx.feedback_store.record(
         feedback_type="confirmed",
         session_id=ctx.session.session_id,
-        trace_id=ctx.last_trace_id,
+        trace_id=trace_id,
         content=comment,
         original_response=ctx.session.last_assistant_message(),
     )
-    ctx.logger.log("feedback_confirmed", session_id=ctx.session.session_id, trace_id=ctx.last_trace_id)
-    renderer.success("Feedback registrado: resposta confirmada.")
+    ctx.logger.log("feedback_confirmed", session_id=ctx.session.session_id, trace_id=trace_id)
+    renderer.success(f"Feedback registrado: resposta confirmada (trace_id={trace_id}).")
     # Fase E: promover trace a golden no runtime
-    if ctx.last_trace_id:
-        try:
-            ctx.opentracy.promote_to_golden(ctx.last_trace_id)
-        except Exception as exc:
-            renderer.warning(f"Promocao a golden falhou: {exc}")
+    try:
+        ctx.opentracy.promote_to_golden(trace_id)
+    except Exception as exc:
+        renderer.warning(f"Promocao a golden falhou: {exc}")
     return True
+
+
+def _looks_like_trace_id(value: str) -> bool:
+    """Heurística: UUID ou hash hexadecimal com 8+ caracteres."""
+    import re
+    # UUID: 07030490-25d5-4e7b-a690-4da4d9583080
+    if re.match(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$', value):
+        return True
+    # Hash curto: mock_04ab6ea08e7c ou 04ab6ea08e7c
+    if re.match(r'^(mock_)?[0-9a-fA-F]{12,}$', value):
+        return True
+    return False
 
 
 def _correct_feedback(ctx: CommandContext, args: str) -> bool:

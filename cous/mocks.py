@@ -25,6 +25,7 @@ class MockOpenTracyClient:
         *,
         history: list[dict[str, str]] | None = None,
         channel: str = "terminal",
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         if channel == "terminal_summary":
             recent = history[-4:] if history else []
@@ -51,6 +52,9 @@ class MockOpenTracyClient:
 
     def get_verticals(self) -> tuple[str, ...]:
         return DEFAULT_VERTICALS
+
+    def promote_to_golden(self, trace_id: str) -> dict[str, Any]:
+        return {"status": "ok", "trace_id": trace_id}
 
     def close(self) -> None:
         return None
@@ -111,6 +115,9 @@ class MockKnowledgeClient:
 
     def get_verticals(self) -> tuple[str, ...]:
         return DEFAULT_VERTICALS
+
+    def promote_to_golden(self, trace_id: str) -> dict[str, Any]:
+        return {"status": "ok", "trace_id": trace_id}
 
     def close(self) -> None:
         return None
@@ -240,6 +247,9 @@ class MockMeasurementsClient:
 
     def get_verticals(self) -> tuple[str, ...]:
         return DEFAULT_VERTICALS
+
+    def promote_to_golden(self, trace_id: str) -> dict[str, Any]:
+        return {"status": "ok", "trace_id": trace_id}
 
     def close(self) -> None:
         return None

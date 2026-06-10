@@ -1,8 +1,9 @@
 # Manual Completo do Cous — Cliente Terminal para OpenTracy
 
-> **Versão do Cous:** 0.1.0  
+> **Versão do Cous:** 2.0.0  
 > **Repositório:** `ligadotattoo/ligadoAi_cous_opentracy`  
-> **Requisito:** Python 3.11+
+> **Requisito:** Python 3.11+  
+> **Fases concluídas:** Fundação, A (system prompt), B (indexação medições), B2 (feedback), C (pipeline retrieve), D (traces), E (goldens)
 
 ---
 
@@ -15,21 +16,29 @@ O **Cous** é um cliente de terminal fino (thin client) para a plataforma OpenTr
 - Terminal interativo com interface rica via **Rich** (painéis, tabelas, cores)
 - **Autenticação por dois tokens Bearer** independentes (knowledge + API do agente)
 - **Chat com o agente** do OpenTracy via backend HTTP (`/v1/api/<agent_id>/chat`)
+- **System prompt automático** — cache com TTL do `system.md` do agente, injetado em todo chat (Fase A)
+- **Pipeline retrieve como padrão** — o OpenTracy decide relevância via RAG, sem injeção manual (Fase C)
 - **Persistência local de sessões de chat** em arquivos JSONL
 - **Resumo manual e automático** de conversa (compressão de contexto por tamanho)
 - **Logs JSONL** de eventos do terminal
+- **Emissão de traces** compatíveis com o harness de auto-melhoria do OpenTracy (Fase D)
 - **Comandos de knowledge:** indexar, validar, buscar, remover, listar documentos
+- **Indexação automática de medições** no FAISS após captura (Fase B)
 - **Captura, persistência local e sincronização** de medições (TMA_DATA via porta serial)
 - **Diagnóstico e laudo** de medições (remoto com fallback local)
+- **Feedback humano estruturado** — comandos `/confirmar`, `/corrigir`, `/solucao` (Fase B2)
+- **Promoção de feedback a golden** — `/confirmar` promove trace a golden no OpenTracy (Fase E)
 - **Modo mock** para desenvolvimento e testes offline
 
-### 1.2 O que o Cous NÃO faz (delegado ao backend OpenTracy)
+### 1.2 O que o Cous NÃO faz (delegado ao OpenTracy)
 
-- PostgreSQL direto de knowledge
 - Geração de embeddings e índice vetorial (FAISS)
+- Pipeline retrieve/rerank/route/generate — o OpenTracy é o motor cognitivo
 - OCR e conversão de documentos
 - Chunking de documentos
 - Reload manual de corpus
+- Decidir relevância de contexto — o pipeline retrieve do OpenTracy assume essa responsabilidade (Fase C)
+- Harness de auto-melhoria — o Cous apenas emite traces compatíveis e promove goldens
 
 ### 1.3 Objetivos do Projeto
 
@@ -50,9 +59,13 @@ O Cous é a face operacional do ecossistema LigadoAI/OpenTracy para técnicos de
 ### Subir o ecossistema (4 terminais)
 
 ```bash
-# Terminal 1 — PostgreSQL
-cd /home/hiatus/Projetos/ligadotattoo/opentracy-terminal-chat
-docker compose up -d postgres
+# Terminal 1 — PostgreSQL (deve estar rodando em localhost:5432)
+# O banco 'ligadoai' é usado tanto para knowledge quanto para medições.
+# Se estiver usando Docker:
+docker run -d --name ligadoai-pg \
+  -e POSTGRES_USER=ligadoai -e POSTGRES_PASSWORD=ligadoai \
+  -e POSTGRES_DB=ligadoai -p 5432:5432 \
+  postgres:16
 
 # Terminal 2 — Runtime do OpenTracy (porta 8001)
 cd /home/hiatus/Projetos/ligadotattoo/OpenTracy
@@ -98,33 +111,42 @@ ligadoAi_cous_opentracy/
 ├── pyproject.toml           # Dependências e entrypoint
 ├── uv.lock                  # Lockfile do uv
 ├── README.md                # Documentação de referência
+├── docs/
+│   ├── ARQUITETURA.md       # Arquitetura do ecossistema Cous + OpenTracy
+│   └── MANUAL.md            # Este manual
 ├── .cous-data/              # Dados locais (não versionados)
 │   ├── conversations/       # Sessões de chat JSONL
 │   ├── measurements.json    # Store local de medições
-│   └── logs/events.jsonl    # Log de eventos do terminal
+│   ├── feedback/            # Registros de feedback (records.jsonl)
+│   ├── logs/
+│   │   ├── events.jsonl     # Log de eventos do terminal
+│   │   └── traces.jsonl     # Traces compatíveis com harness (Fase D)
+│   └── system_prompt_snapshot.md  # Cache local do system prompt
 └── cous/                    # Código-fonte do cliente
     ├── main.py              # Entrypoint CLI
     ├── config.py            # Carregamento tipado de config.toml (Pydantic)
     ├── auth.py              # Provedores de token (env / arquivo)
     ├── bootstrap.py         # Bootstrap da autenticação
-    ├── logger.py            # Logger JSONL de eventos
+    ├── logger.py            # Logger JSONL de eventos + TraceEmitter
     ├── mocks.py             # Clientes fake para modo --mock
     ├── application/
-    │   └── session.py       # ChatSession + ConversationStore (JSONL)
+    │   ├── session.py       # ChatSession + ConversationStore (JSONL)
+    │   └── feedback.py      # FeedbackStore — registro de feedback humano (Fase B2)
     ├── cli/
     │   ├── terminal.py      # Loop interativo principal
     │   ├── commands.py      # Router de comandos + handlers
     │   └── renderer.py      # Renderização Rich (tabelas, painéis)
     ├── clients/
     │   ├── base.py          # HTTP client autenticado + ClientError
-    │   ├── opentracy.py     # Cliente de chat + health + tools
+    │   ├── opentracy.py     # Cliente de chat + health + tools + config + goldens
     │   ├── knowledge.py     # Cliente de knowledge (index/search/validate)
+    │   ├── system_prompt.py # SystemPromptCache — cache do system.md com TTL (Fase A)
     │   └── measurements.py  # Cliente de medições (CRUD + sync + diagnose)
     └── measurements/
         ├── store.py         # MeasurementLocalStore (JSON)
         ├── validation.py    # Validação de cabeçalho e snapshots
         ├── serial_capture.py# Captura serial TMA_DATA (Linux-only, termios)
-        └── analysis.py      # Análise local (sumarização, busca, laudo)
+        └── analysis.py      # Análise local (sumarização, busca, laudo, indexação FAISS)
 ```
 
 ### 2.1 Dependências
@@ -145,7 +167,9 @@ Terminal (Rich) ──► CommandRouter ──► Handlers ──► Clients (HT
                        ▼                              ▼
                   ConversationStore            OpenTracy Backend (8002)
                   MeasurementLocalStore        OpenTracy Runtime (8001)
-                  EventLogger
+                  EventLogger                  System prompt (cache + fallback)
+                  FeedbackStore                Traces (TraceEmitter → harness)
+                  TraceEmitter                 Goldens (promote-from-trace)
 ```
 
 ---
@@ -211,6 +235,16 @@ storage_file = ".cous-data/measurements.json"   # Store local de medições
 
 [logs]
 events_file = ".cous-data/logs/events.jsonl"    # Log de eventos do terminal
+max_size_mb = 10                                # Tamanho máximo do arquivo de log
+backup_count = 3                                # Número de backups rotacionados
+traces_file = ".cous-data/logs/traces.jsonl"    # Traces compatíveis com harness (Fase D)
+
+[feedback]
+storage_file = ".cous-data/feedback/records.jsonl"  # Registros de feedback humano (Fase B2)
+
+[system_prompt]
+cache_ttl_seconds = 300                         # TTL do cache do system prompt
+snapshot_file = ".cous-data/system_prompt_snapshot.md"  # Fallback local
 
 [mcp]
 timeout_seconds = 30
@@ -378,7 +412,33 @@ Mostra tabela com colunas: ID, Msgs, Resumo (sim/não), Atualizada, Preview
 
 ---
 
-### 6.3 Comandos de Knowledge
+### 6.3 Comandos de Feedback (Fases B2 e E)
+
+| Comando                     | Descrição                                                           |
+|-----------------------------|---------------------------------------------------------------------|
+| `/confirmar [comentário]`   | Confirma que a última resposta estava correta — promove trace a golden |
+| `/corrigir <texto>`         | Registra correção para a última resposta                            |
+| `/solucao [id_medicao] <descrição>` | Registra solução aplicada após diagnóstico                   |
+
+#### `/confirmar [comentário]`
+- Confirma a última resposta do agente como correta
+- Registra no `FeedbackStore` local (JSONL)
+- Chama `POST /evals/goldens/promote-from-trace/{trace_id}` para promover o trace a golden no OpenTracy (Fase E)
+- Exibe confirmação com `trace_id` promovido
+
+#### `/corrigir <texto>`
+- Registra uma correção para a última resposta do agente
+- O texto deve conter a informação correta ou o erro identificado
+- Registrado no `FeedbackStore` como tipo `correction`
+
+#### `/solucao [id_medicao] <descrição>`
+- Registra a solução técnica aplicada após um diagnóstico
+- Opcionalmente associada a uma medição específica
+- Registrado no `FeedbackStore` como tipo `solution`
+
+---
+
+### 6.4 Comandos de Knowledge
 
 | Comando      | Descrição                                               |
 |--------------|---------------------------------------------------------|
@@ -418,7 +478,7 @@ Mostra tabela com colunas: ID, Msgs, Resumo (sim/não), Atualizada, Preview
 
 ---
 
-### 6.4 Comandos de Medições
+### 6.5 Comandos de Medições
 
 | Comando        | Alias  | Descrição                                                    |
 |----------------|--------|--------------------------------------------------------------|
@@ -549,17 +609,32 @@ Snapshots inválidos são contabilizados como rejeitados e não entram na sessã
 
 ## 9. Funcionalidades do Chat
 
-### 9.1 Contexto Local de Medições
+### 9.1 System Prompt Automático (Fase A)
 
-Quando o operador envia uma mensagem contendo termos relacionados a medições (coleta, laudo, diagnóstico, máquina, snapshot, hall, vibração, power, course, rpm, serial, bancada, reparo), o Cous automaticamente:
+A cada mensagem enviada ao agente, o Cous injeta o `system.md` do OpenTracy como mensagem de sistema (`role: "system"`). O system prompt é obtido via `GET /agent/config` e mantido em cache com TTL configurável (padrão: 300s). Em caso de falha na obtenção remota, um snapshot local é usado como fallback.
 
-1. Busca as medições locais mais relevantes para a consulta
-2. Anexa um bloco de contexto formatado ao `request_text` enviado ao agente
-3. Se não houver match textual exato, usa as sessões recentes como fallback
+Isso garante que o agente sempre responda com a especialização de domínio definida no `system.md`, que é a superfície treinável do OpenTracy — o harness pode modificá-la ao longo do tempo.
 
-Isso evita o caso em que a coleta foi salva localmente mas o agente responde como se não existisse.
+### 9.2 Pipeline Retrieve como Padrão (Fase C)
 
-### 9.2 Resumo Automático
+O Cous **não injeta mais contexto de medições manualmente** no `request_text`. Em vez disso:
+
+1. Após cada `/capturar`, as medições são automaticamente indexadas no FAISS do OpenTracy via `POST /knowledge/index` (Fase B)
+2. O pipeline retrieve do OpenTracy (`retrieve → rerank → route → generate`) busca os documentos relevantes — incluindo sumários de medições — automaticamente
+3. O agente recebe o contexto via RAG, sem intervenção manual do Cous
+
+A remoção da injeção manual foi validada com um gate A/B: o pipeline retrieve com `multilingual-e5-base` iguala ou supera a injeção manual para queries em português.
+
+### 9.3 Emissão de Traces (Fase D)
+
+Após cada resposta do agente, o Cous emite um trace compatível com o harness de auto-melhoria do OpenTracy:
+
+- **Local:** `.cous-data/logs/traces.jsonl`
+- **Formato:** compatível com `StageOutcome` do runtime (stage, technique, variant, duration_ms, docs_in, docs_out)
+- **Metadados:** `trace_id`, `session_id`, `channel="terminal"`, `request`, `response`, `duration_ms`
+- **Uso:** O harness proposer consome esses traces para gerar propostas de melhoria no agente (Fase G)
+
+### 9.4 Resumo Automático
 
 O resumo automático é disparado quando:
 - O total de caracteres nas mensagens ainda não resumidas (`pending_summary_chars()`) ultrapassa `max_chars_before_summary` (padrão: 16000)
@@ -589,6 +664,10 @@ O terminal grava eventos JSONL em `.cous-data/logs/events.jsonl`.
 | `chat_session_created` | Nova sessão de chat criada               |
 | `chat_session_loaded`  | Sessão de chat carregada                 |
 | `terminal_exit`      | Encerramento do terminal                    |
+| `feedback_confirmed` | Feedback confirmado pelo operador (Fase B2) |
+| `feedback_corrected` | Correção registrada pelo operador (Fase B2) |
+| `feedback_solution`  | Solução aplicada registrada (Fase B2)       |
+| `golden_promoted`    | Trace promovido a golden no OpenTracy (Fase E) |
 
 ---
 
@@ -639,6 +718,31 @@ Arquivo JSONL com uma entrada por linha. Tipos de evento:
 
 ---
 
+### 11.3 `.cous-data/feedback/records.jsonl`
+
+Registros de feedback humano (Fase B2). Um registro por linha:
+
+```jsonl
+{"type": "confirmation", "session_id": "chat_...", "trace_id": "trace_...", "content": "Diagnóstico correto", "timestamp": "..."}
+{"type": "correction", "session_id": "chat_...", "trace_id": "trace_...", "content": "Não era a bucha, era o capacitor", "timestamp": "..."}
+{"type": "solution", "session_id": "chat_...", "measurement_id": "med_...", "content": "Troquei a fonte e resolveu", "timestamp": "..."}
+```
+
+Tipos de feedback:
+- `confirmation` — operador confirma que a resposta estava correta (promovível a golden)
+- `correction` — operador corrige a resposta do agente
+- `solution` — operador registra a solução técnica aplicada
+
+### 11.4 `.cous-data/logs/traces.jsonl`
+
+Traces compatíveis com o harness de auto-melhoria do OpenTracy (Fase D):
+
+```jsonl
+{"ts": "2026-06-09T10:45:30.123456+00:00", "trace_id": "trace_...", "session_id": "chat_...", "channel": "terminal", "request": "...", "response": "...", "duration_ms": 1234, "agent_version": "v0.0.5", "stages": [{"stage": "retrieve", "technique": "dense", "variant": "multilingual-e5-base", "duration_ms": 45, "docs_in": 30, "docs_out": 5}]}
+```
+
+---
+
 ## 12. Integração com OpenTracy — Endpoints Usados
 
 ### 12.1 Chat (via backend — porta 8002)
@@ -647,6 +751,7 @@ Arquivo JSONL com uma entrada por linha. Tipos de evento:
 |--------|-----------------------------------------------|----------------------|
 | POST   | `/v1/api/{agent_id}/chat`                     | Enviar mensagem      |
 | GET    | `/v1/agents/{agent_id}/mcp/tools`             | Listar MCP tools     |
+| POST   | `/v1/evals/goldens/promote-from-trace/{trace_id}` | Promover trace a golden (Fase E) |
 | GET    | `/health`                                     | Health check         |
 
 ### 12.2 Knowledge (via runtime — porta 8001)
@@ -680,6 +785,7 @@ Arquivo JSONL com uma entrada por linha. Tipos de evento:
 | POST   | `/agents`                                   | Criar agente             |
 | POST   | `/agents/{agent_id}/channels/api/connect`   | Conectar canal API       |
 | POST   | `/agents/{agent_id}/channels/api/rotate`    | Rotacionar token API     |
+| GET    | `/agent/config`                             | Obter config do agente (system prompt, Fase A) |
 
 ---
 
@@ -899,15 +1005,15 @@ cat .cous-data/measurements.json | python3 -m json.tool | head -50
 | Mensagens acumuladas < `max_chars_before_summary` | Nenhum resumo  |
 | Mensagens acumuladas > `max_chars_before_summary` | Resumo gerado e persistido |
 
-### 14.4 Contexto de Medições no Chat
+### 14.4 Recuperação de Medições no Chat (Fase C)
 
-| Termos na mensagem                           | Contexto anexado? |
-|----------------------------------------------|-------------------|
-| "medição", "coleta", "laudo", "diagnóstico"  | Sim               |
-| "máquina", "snapshot", "hall", "vibração"    | Sim               |
-| "rpm", "power", "course", "serial", "bancada"| Sim               |
-| "reparo", "homologação"                      | Sim               |
-| "qual a cor do céu?"                         | Não               |
+Com a remoção da injeção manual, o pipeline retrieve do OpenTracy é responsável por encontrar medições relevantes:
+
+| Situação                                      | Comportamento                                    |
+|-----------------------------------------------|--------------------------------------------------|
+| Medição indexada no FAISS                     | Pipeline retrieve encontra automaticamente       |
+| Query com termos de domínio (vibração, hall)  | Retriever ranqueia sumários de medições          |
+| Medição apenas local (não sincronizada)       | Não disponível para o agente (sincronize primeiro)|
 
 ### 14.5 Sincronização
 
@@ -949,6 +1055,10 @@ cat .cous-data/measurements.json | python3 -m json.tool | head -50
 /carregar [id] | /cg [id]      — Carrega sessão
 /memoria                       — Info da sessão atual
 /resumo                        — Resume conversa
+
+/confirmar [comentário]        — Confirma resposta (promove golden, Fase E)
+/corrigir <texto>              — Corrige resposta (Fase B2)
+/solucao [id] <desc>           — Registra solução aplicada (Fase B2)
 
 /validar [path]                — Valida doc
 /indexar <path>                — Indexa doc
@@ -1022,3 +1132,11 @@ Use esta checklist para garantir que todas as funcionalidades foram testadas:
 - [ ] Dados persistidos em `.cous-data/` sobrevivem a reinicializações
 - [ ] `/sair` encerra o programa
 - [ ] `pytest` passa sem falhas
+- [ ] System prompt é carregado do runtime e injetado no chat (Fase A)
+- [ ] `/confirmar` registra feedback e promove trace a golden (Fases B2 + E)
+- [ ] `/corrigir` registra correção no FeedbackStore (Fase B2)
+- [ ] `/solucao` registra solução aplicada (Fase B2)
+- [ ] Traces são emitidos em `.cous-data/logs/traces.jsonl` após cada chat (Fase D)
+- [ ] Medições são indexadas automaticamente no FAISS após `/capturar` (Fase B)
+- [ ] Pipeline retrieve encontra medições sem injeção manual (Fase C)
+- [ ] FeedbackStore persiste em `.cous-data/feedback/records.jsonl`
