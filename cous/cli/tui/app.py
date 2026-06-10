@@ -63,7 +63,7 @@ class CousApp(App):
         self._knowledge = knowledge
         self._measurements = measurements
         self._conversations = conversations
-        self._logger = event_logger
+        self._event_log = event_logger  # renomeado para evitar conflito textual
         self._feedback_store = feedback_store
         self._system_prompt_cache = system_prompt_cache
         self._trace_emitter = trace_emitter
@@ -103,7 +103,7 @@ class CousApp(App):
             measurements=self._measurements,
             conversations=self._conversations,
             session=session,
-            logger=self._logger,
+            logger=self._event_log,
             feedback_store=self._feedback_store,
             system_prompt_cache=self._system_prompt_cache,
             trace_emitter=self._trace_emitter,
@@ -171,8 +171,8 @@ class CousApp(App):
         scroll.add_bubble("pensando...", role="system")
 
         ctx.session.add("user", text)
-        if self._logger:
-            self._logger.log("chat_user", session_id=ctx.session.session_id, text=text)
+        if self._event_log:
+            self._event_log.log("chat_user", session_id=ctx.session.session_id, text=text)
 
         history = ctx.session.history_for_model(ctx.config.memory.max_history)
         if ctx.system_prompt_cache is not None:
@@ -207,8 +207,8 @@ class CousApp(App):
             stages=result.get("stages"),
         ))
 
-        if self._logger:
-            self._logger.log("chat_assistant", session_id=ctx.session.session_id,
+        if self._event_log:
+            self._event_log.log("chat_assistant", session_id=ctx.session.session_id,
                            trace_id=trace_id, text=response)
 
         self._maybe_refresh_summary(ctx)
@@ -321,8 +321,8 @@ class CousApp(App):
             from cous.cli.commands import build_chat_summary
             summary = build_chat_summary(ctx)
             ctx.session.set_summary(summary)
-            if self._logger:
-                self._logger.log("summary_updated", session_id=ctx.session.session_id, automatic=True)
+            if self._event_log:
+                self._event_log.log("summary_updated", session_id=ctx.session.session_id, automatic=True)
         except Exception:
             pass
 
