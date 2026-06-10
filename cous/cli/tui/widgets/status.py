@@ -18,8 +18,8 @@ class StatusRow(Static):
     }
     """
 
-    def __init__(self, name: str) -> None:
-        super().__init__()
+    def __init__(self, name: str, **kwargs) -> None:
+        super().__init__(**kwargs)
         self._name = name
         self._state = "unknown"
         self._detail = "-"
@@ -52,8 +52,8 @@ class StatusPanel(Container):
     }
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
         self._rows: dict[str, StatusRow] = {}
 
     def compose(self) -> ComposeResult:

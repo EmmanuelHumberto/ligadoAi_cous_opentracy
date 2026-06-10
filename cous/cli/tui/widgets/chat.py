@@ -14,8 +14,8 @@ class ChatBubble(Static):
     .bubble-system (cinza, itálico).
     """
 
-    def __init__(self, text: str, *, role: str = "operator", trace_id: str = "") -> None:
-        super().__init__()
+    def __init__(self, text: str, *, role: str = "operator", trace_id: str = "", **kwargs) -> None:
+        super().__init__(**kwargs)
         self._text = text
         self._role = role
         self._trace_id = trace_id

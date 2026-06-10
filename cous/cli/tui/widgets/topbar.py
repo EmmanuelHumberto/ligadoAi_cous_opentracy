@@ -23,8 +23,8 @@ class TopBar(Static):
     }
     """
 
-    def __init__(self, agent_id: str = "cous") -> None:
-        super().__init__()
+    def __init__(self, agent_id: str = "cous", **kwargs) -> None:
+        super().__init__(**kwargs)
         self.agent_id = agent_id
         self._backend_dot = "[#555]●[/]"
         self._runtime_dot = "[#555]●[/]"

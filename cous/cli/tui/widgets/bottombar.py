@@ -23,8 +23,8 @@ class BottomBar(Static):
     }
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
         self._session_id = "-"
         self._model = "-"
         self._tokens = 0
