@@ -7,7 +7,12 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual import on, work
 
-from cous.cli.tui.events import ChatResponse, LogLineData, StatusUpdated, UserInput
+from cous.cli.tui.events import (
+    ChatResponse, ChatSessionsData, DocumentsData,
+    LogLineData, MeasurementDetailData, MeasurementsData,
+    SearchResultsData, StatusUpdated, UserInput,
+)
+from cous.cli.tui.output_router import OutputRouter
 from cous.cli.tui.poller import StatusPoller
 from cous.cli.tui.state import AppState
 from cous.cli.tui.widgets.bottombar import BottomBar
@@ -100,9 +105,14 @@ class CousApp(App):
             feedback_store=self._feedback_store,
             system_prompt_cache=self._system_prompt_cache,
             trace_emitter=self._trace_emitter,
-            output_router=None,  # Sprint 4
+            output_router=None,  # populado abaixo
         )
         self._command_router = build_router()
+
+        # OutputRouter — thread-safe após on_mount
+        self.output_router = OutputRouter(self)
+        self.ctx.output_router = self.output_router
+        self.output_router.flush_pending()
 
         # Boas-vindas
         from cous.cli.tui.widgets.chat import ChatScroll
@@ -237,6 +247,65 @@ class CousApp(App):
         try:
             log = self.query_one(LogPanel)
             log.add_line(event.level, event.text)
+        except Exception:
+            pass
+
+    # ── Handlers de dados (tabelas) ─────────────────────────────────────
+
+    @on(SearchResultsData)
+    def handle_search_results(self, event: SearchResultsData) -> None:
+        rows = [
+            f"{r.get('document_id', '')[:8]:<10} score={r.get('score', 0):.2f} {r.get('text', '')[:100]}"
+            for r in (event.results or [])[:15]
+        ]
+        self._show_side_data("Busca", rows)
+
+    @on(DocumentsData)
+    def handle_documents(self, event: DocumentsData) -> None:
+        rows = [
+            f"{d.get('id', '')[:8]:<10} {d.get('title', '-')[:60]}"
+            for d in (event.docs or [])[:15]
+        ]
+        self._show_side_data("Documentos", rows)
+
+    @on(MeasurementsData)
+    def handle_measurements(self, event: MeasurementsData) -> None:
+        rows = []
+        for s in (event.sessions or [])[:15]:
+            h = s.get("header") or {}
+            rows.append(
+                f"{s.get('id', '')[:16]:<18} {h.get('fabricante', '-')} {h.get('modelo', '-')} {s.get('status', '-')}"
+            )
+        self._show_side_data("Medições", rows)
+
+    @on(ChatSessionsData)
+    def handle_chat_sessions(self, event: ChatSessionsData) -> None:
+        rows = [
+            f"{s.get('id', '')[:20]:<22} msgs={s.get('messages', 0)} {s.get('preview', '-')[:60]}"
+            for s in (event.sessions or [])[:15]
+        ]
+        self._show_side_data("Sessões", rows)
+
+    @on(MeasurementDetailData)
+    def handle_measurement_detail(self, event: MeasurementDetailData) -> None:
+        s = event.session or {}
+        h = s.get("header") or {}
+        rows = [
+            f"ID: {s.get('id', '-')}",
+            f"Status: {s.get('status', '-')}",
+            f"Fabricante: {h.get('fabricante', '-')}",
+            f"Modelo: {h.get('modelo', '-')}",
+            f"Série: {h.get('numero_serie', '-')}",
+            f"Snapshots: {s.get('total_snapshots', 0)}",
+            f"Sync: {s.get('sync_status', '-')}",
+        ]
+        self._show_side_data("Medição", rows)
+
+    def _show_side_data(self, title: str, rows: list[str]) -> None:
+        from cous.cli.tui.widgets.sidebar import SidePanel
+        try:
+            panel = self.query_one(SidePanel)
+            panel.show_data(title, rows)
         except Exception:
             pass
 

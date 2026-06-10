@@ -160,14 +160,16 @@ def _status(ctx: CommandContext, args: str) -> bool:
         measurements_detail = str(exc)
         if exc.status_code in {401, 403}:
             measurements_state = "auth_falhou"
-    renderer.status_table(
-        [
-            ("OpenTracy backend", "ok" if health["backend"] else "offline", "-"),
-            ("OpenTracy runtime", "ok" if health["runtime"] else "offline", "-"),
-            ("Knowledge API", knowledge_state, knowledge_detail),
-            ("Measurements API", measurements_state, measurements_detail),
-        ]
-    )
+    rows = [
+        ("OpenTracy backend", "ok" if health["backend"] else "offline", "-"),
+        ("OpenTracy runtime", "ok" if health["runtime"] else "offline", "-"),
+        ("Knowledge API", knowledge_state, knowledge_detail),
+        ("Measurements API", measurements_state, measurements_detail),
+    ]
+    if ctx.output_router:
+        ctx.output_router.status_table(rows)
+    else:
+        renderer.status_table(rows)
     return True
 
 
@@ -330,7 +332,11 @@ def _format_job_error(error: object) -> str:
 
 def _documents(ctx: CommandContext, args: str) -> bool:
     try:
-        renderer.documents_table(ctx.knowledge.list_documents())
+        docs = ctx.knowledge.list_documents()
+        if ctx.output_router:
+            ctx.output_router.documents_table(docs)
+        else:
+            renderer.documents_table(docs)
     except ClientError as exc:
         renderer.error(str(exc))
     return True
@@ -342,7 +348,11 @@ def _search(ctx: CommandContext, args: str) -> bool:
         renderer.error("Uso: /buscar <consulta>")
         return True
     try:
-        renderer.search_results(ctx.knowledge.search(query.strip()))
+        results = ctx.knowledge.search(query.strip())
+        if ctx.output_router:
+            ctx.output_router.search_results(results)
+        else:
+            renderer.search_results(results)
     except ClientError as exc:
         renderer.error(str(exc))
     return True
@@ -394,7 +404,10 @@ def _measurements(ctx: CommandContext, args: str) -> bool:
         if not sessions:
             renderer.info("Nenhuma sessao encontrada para o filtro informado.")
             return True
-        renderer.measurements_table(sessions)
+        if ctx.output_router:
+            ctx.output_router.measurements_table(sessions)
+        else:
+            renderer.measurements_table(sessions)
     except (ClientError, ValueError) as exc:
         renderer.error(str(exc))
     return True
@@ -406,7 +419,11 @@ def _measurement(ctx: CommandContext, args: str) -> bool:
         renderer.error("Uso: /medicao <id>")
         return True
     try:
-        renderer.measurement_detail(ctx.measurements.get_session(session_id))
+        session = ctx.measurements.get_session(session_id)
+        if ctx.output_router:
+            ctx.output_router.measurement_detail(session)
+        else:
+            renderer.measurement_detail(session)
     except (ClientError, ValueError) as exc:
         renderer.error(str(exc))
     return True
@@ -963,7 +980,11 @@ def _confirm_feedback(ctx: CommandContext, args: str) -> bool:
         user_request=ctx.session.last_user_message(),
     )
     ctx.logger.log("feedback_confirmed", session_id=ctx.session.session_id, trace_id=trace_id)
-    renderer.success(f"Feedback registrado: resposta confirmada (trace_id={trace_id}).")
+    if ctx.output_router:
+        ctx.output_router.success(f"Feedback registrado: resposta confirmada (trace_id={trace_id}).")
+        ctx.output_router.feedback_registered("confirmed", trace_id)
+    else:
+        renderer.success(f"Feedback registrado: resposta confirmada (trace_id={trace_id}).")
     # Fase E: promover trace a golden no runtime
     try:
         ctx.opentracy.promote_to_golden(trace_id)
@@ -1002,7 +1023,10 @@ def _correct_feedback(ctx: CommandContext, args: str) -> bool:
         user_request=ctx.session.last_user_message(),
     )
     ctx.logger.log("feedback_correction", session_id=ctx.session.session_id, trace_id=ctx.last_trace_id)
-    renderer.success("Feedback registrado: correcao aplicada.")
+    if ctx.output_router:
+        ctx.output_router.success("Feedback registrado: correcao aplicada.")
+    else:
+        renderer.success("Feedback registrado: correcao aplicada.")
     return True
 
 
@@ -1024,7 +1048,10 @@ def _solution_feedback(ctx: CommandContext, args: str) -> bool:
         user_request=ctx.session.last_user_message(),
     )
     ctx.logger.log("feedback_solution", session_id=ctx.session.session_id, trace_id=ctx.last_trace_id)
-    renderer.success("Feedback registrado: solucao aplicada.")
+    if ctx.output_router:
+        ctx.output_router.success("Feedback registrado: solucao aplicada.")
+    else:
+        renderer.success("Feedback registrado: solucao aplicada.")
     return True
 
 
