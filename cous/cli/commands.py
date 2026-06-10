@@ -28,6 +28,14 @@ CommandHandler = Callable[["CommandContext", str], bool]
 SUPPORTED_INDEX_EXTENSIONS = {".md", ".txt", ".docx"}
 
 
+def _route_msg(ctx: CommandContext, method: str, text: str) -> None:
+    """Roteia mensagem de texto para output_router (TUI) ou renderer (legado)."""
+    if ctx.output_router:
+        getattr(ctx.output_router, method)(text)
+    else:
+        getattr(renderer, method)(text)
+
+
 @dataclass
 class CommandContext:
     config: Config
@@ -70,8 +78,8 @@ class CommandRouter:
         if entry is None:
             if hasattr(ctx, "logger"):
                 ctx.logger.log("command_unknown", session_id=ctx.session.session_id, command=command)
-            renderer.error(f"Comando desconhecido: /{command}")
-            renderer.info("Digite /ajuda para ver os comandos disponiveis.")
+            _route_msg(ctx, "error", f"Comando desconhecido: /{command}")
+            _route_msg(ctx, "info", "Digite /ajuda para ver os comandos disponiveis.")
             return True
         handler, _ = entry
         if hasattr(ctx, "logger"):
@@ -117,7 +125,7 @@ def _help(ctx: CommandContext, args: str) -> bool:
     for name, description in build_router().descriptions():
         if description.startswith("Atalho de"):
             continue
-        renderer.info(f"{name:<12} {description}")
+        _route_msg(ctx, "info", f"{name:<12} {description}")
     return True
 
 
@@ -177,23 +185,23 @@ def _tools(ctx: CommandContext, args: str) -> bool:
     try:
         tools = ctx.opentracy.list_tools()
     except ClientError as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
         return True
     if not tools:
-        renderer.info("Nenhuma tool encontrada.")
+        _route_msg(ctx, "info", "Nenhuma tool encontrada.")
         return True
     for tool in tools:
-        renderer.info(str(tool.get("name") or tool.get("tool_name") or tool))
+        _route_msg(ctx, "info", str(tool.get("name") or tool.get("tool_name") or tool))
     return True
 
 
 def _index(ctx: CommandContext, args: str) -> bool:
     if not args.strip():
-        renderer.error("Uso: /indexar <arquivo|pasta>")
+        _route_msg(ctx, "error", "Uso: /indexar <arquivo|pasta>")
         return True
     target = Path(args.strip()).expanduser().resolve()
     if not target.exists():
-        renderer.error(f"Arquivo ou pasta nao encontrado: {target}")
+        _route_msg(ctx, "error", f"Arquivo ou pasta nao encontrado: {target}")
         return True
     targets = _collect_index_targets(target)
     if not targets:
@@ -203,7 +211,7 @@ def _index(ctx: CommandContext, args: str) -> bool:
         )
         return True
     if target.is_dir():
-        renderer.info(f"Lote: {len(targets)} arquivos para indexar.")
+        _route_msg(ctx, "info", f"Lote: {len(targets)} arquivos para indexar.")
     try:
         for path in targets:
             validation = ctx.knowledge.validate(path)
@@ -215,10 +223,10 @@ def _index(ctx: CommandContext, args: str) -> bool:
                 continue
             created = ctx.knowledge.index(path)
             job_id = str(created.get("job_id"))
-            renderer.info(f"Job criado: {job_id} arquivo={path.name}")
+            _route_msg(ctx, "info", f"Job criado: {job_id} arquivo={path.name}")
             _poll_job(ctx, job_id)
     except ClientError as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
     return True
 
 
@@ -237,11 +245,11 @@ def _collect_index_targets(target: Path) -> list[Path]:
 def _validate(ctx: CommandContext, args: str) -> bool:
     target_value = args.strip() or _prompt("Arquivo ou pasta para validar")
     if not target_value.strip():
-        renderer.error("Uso: /validar <arquivo|pasta>")
+        _route_msg(ctx, "error", "Uso: /validar <arquivo|pasta>")
         return True
     target = Path(target_value).expanduser().resolve()
     if not target.exists():
-        renderer.error(f"Arquivo ou pasta nao encontrado: {target}")
+        _route_msg(ctx, "error", f"Arquivo ou pasta nao encontrado: {target}")
         return True
     targets = _collect_index_targets(target)
     if not targets:
@@ -263,11 +271,11 @@ def _validate(ctx: CommandContext, args: str) -> bool:
                 )
             else:
                 rejected += 1
-                renderer.warning(f"REPROVADO {path.name} {_format_validation_errors(result)}")
+                _route_msg(ctx, "warning", f"REPROVADO {path.name} {_format_validation_errors(result)}")
     except ClientError as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
         return True
-    renderer.info(f"Validacao concluida: {approved} aprovados, {rejected} reprovados.")
+    _route_msg(ctx, "info", f"Validacao concluida: {approved} aprovados, {rejected} reprovados.")
     return True
 
 
@@ -295,20 +303,24 @@ def _poll_job(ctx: CommandContext, job_id: str) -> None:
         job = ctx.knowledge.get_job(job_id)
         status = str(job.get("status", "unknown"))
         stage = job.get("stage") or "-"
-        renderer.info(f"job={job_id[:8]} status={status} stage={stage}")
+        _route_msg(ctx, "info", f"job={job_id[:8]} status={status} stage={stage}")
+
+        # Job progress via output_router no TUI
+        if ctx.output_router:
+            ctx.output_router.job_progress(job_id, status, stage)
 
         if status in terminal_statuses:
             if status == "failed":
                 error = job.get("error")
                 if error:
-                    renderer.error(_format_job_error(error))
+                    _route_msg(ctx, "error", _format_job_error(error))
             return
 
         time.sleep(backoff_seconds)
         elapsed += backoff_seconds
         backoff_seconds = min(backoff_seconds * 2, max_backoff)
 
-    renderer.warning(
+    _route_msg(ctx, "warning",
         f"Polling encerrado apos {timeout_seconds}s; o job pode continuar no OpenTracy."
     )
 
@@ -338,14 +350,14 @@ def _documents(ctx: CommandContext, args: str) -> bool:
         else:
             renderer.documents_table(docs)
     except ClientError as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
     return True
 
 
 def _search(ctx: CommandContext, args: str) -> bool:
     query = args.strip() or _prompt("Consulta para buscar")
     if not query.strip():
-        renderer.error("Uso: /buscar <consulta>")
+        _route_msg(ctx, "error", "Uso: /buscar <consulta>")
         return True
     try:
         results = ctx.knowledge.search(query.strip())
@@ -354,32 +366,32 @@ def _search(ctx: CommandContext, args: str) -> bool:
         else:
             renderer.search_results(results)
     except ClientError as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
     return True
 
 
 def _delete(ctx: CommandContext, args: str) -> bool:
     document_id = args.strip() or _prompt("Document ID para remover")
     if not document_id:
-        renderer.error("Uso: /remover <document_id>")
+        _route_msg(ctx, "error", "Uso: /remover <document_id>")
         return True
     try:
         # Se parece um prefixo (não um UUID completo), busca nos documentos
         if len(document_id) < 32 and not _looks_like_full_uuid(document_id):
             resolved = _resolve_document_id(ctx, document_id)
             if resolved is None:
-                renderer.error(f"Nenhum documento encontrado com prefixo: {document_id}")
+                _route_msg(ctx, "error", f"Nenhum documento encontrado com prefixo: {document_id}")
                 return True
             if len(resolved) > 1:
-                renderer.info(f"Multiplos documentos encontrados. Use o ID completo:")
+                _route_msg(ctx, "info", f"Multiplos documentos encontrados. Use o ID completo:")
                 for doc_id in resolved:
-                    renderer.info(f"  {doc_id}")
+                    _route_msg(ctx, "info", f"  {doc_id}")
                 return True
             document_id = resolved[0]
         ctx.knowledge.delete_document(document_id)
-        renderer.success(f"Documento removido: {document_id}")
+        _route_msg(ctx, "success", f"Documento removido: {document_id}")
     except ClientError as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
     return True
 
 
@@ -402,21 +414,21 @@ def _measurements(ctx: CommandContext, args: str) -> bool:
     try:
         sessions = ctx.measurements.list_sessions(args.strip() or None)
         if not sessions:
-            renderer.info("Nenhuma sessao encontrada para o filtro informado.")
+            _route_msg(ctx, "info", "Nenhuma sessao encontrada para o filtro informado.")
             return True
         if ctx.output_router:
             ctx.output_router.measurements_table(sessions)
         else:
             renderer.measurements_table(sessions)
     except (ClientError, ValueError) as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
     return True
 
 
 def _measurement(ctx: CommandContext, args: str) -> bool:
     session_id = args.strip() or _prompt_measurement_session_id(ctx, "medicao")
     if not session_id:
-        renderer.error("Uso: /medicao <id>")
+        _route_msg(ctx, "error", "Uso: /medicao <id>")
         return True
     try:
         session = ctx.measurements.get_session(session_id)
@@ -425,41 +437,41 @@ def _measurement(ctx: CommandContext, args: str) -> bool:
         else:
             renderer.measurement_detail(session)
     except (ClientError, ValueError) as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
     return True
 
 
 def _measurement_report(ctx: CommandContext, args: str) -> bool:
     session_id = args.strip() or _prompt_measurement_session_id(ctx, "laudo")
     if not session_id:
-        renderer.error("Uso: /laudo <id>")
+        _route_msg(ctx, "error", "Uso: /laudo <id>")
         return True
     try:
         result = ctx.measurements.report(session_id)
         markdown = str(result.get("markdown") or "")
-        renderer.info(f"Laudo gerado via {result.get('source') or 'desconhecido'}.")
+        _route_msg(ctx, "info", f"Laudo gerado via {result.get('source') or 'desconhecido'}.")
         renderer.assistant(markdown)
     except (ClientError, ValueError) as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
     return True
 
 
 def _measurement_diagnostic(ctx: CommandContext, args: str) -> bool:
     session_id = args.strip() or _prompt_measurement_session_id(ctx, "diagnostico")
     if not session_id:
-        renderer.error("Uso: /diagnostico <id>")
+        _route_msg(ctx, "error", "Uso: /diagnostico <id>")
         return True
     try:
         result = ctx.measurements.diagnose(session_id)
-        renderer.info(f"Diagnostico gerado via {result.get('source') or 'desconhecido'}.")
+        _route_msg(ctx, "info", f"Diagnostico gerado via {result.get('source') or 'desconhecido'}.")
         diagnostic = result.get("diagnostic") or {}
         summary = str(diagnostic.get("summary") or "-")
         approved = "sim" if diagnostic.get("approved") else "nao"
-        renderer.info(f"Aprovado: {approved}")
-        renderer.info(f"Resumo: {summary}")
+        _route_msg(ctx, "info", f"Aprovado: {approved}")
+        _route_msg(ctx, "info", f"Resumo: {summary}")
         renderer.measurement_detail(result.get("session") or ctx.measurements.get_session(session_id))
     except (ClientError, ValueError) as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
     return True
 
 
@@ -473,21 +485,21 @@ def _capture(ctx: CommandContext, args: str) -> bool:
         session = ctx.measurements.create_session(_measurement_header_payload(header))
         session_id = str(session.get("id") or "")
     except ValueError as exc:
-        renderer.error(str(exc))
-        renderer.info(
+        _route_msg(ctx, "error", str(exc))
+        _route_msg(ctx, "info",
             "Uso: /capturar fabricante=FK modelo=Flux numero_serie=SN123 "
             "tipo_coleta=desempenho sistema_transmissao=direct porta_serial=/dev/ttyACM0 "
             "verticais=hall,power,course,vibration"
         )
         return True
     except ClientError as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
         return True
-    renderer.success(f"Sessao de medicao criada: {session_id}")
+    _route_msg(ctx, "success", f"Sessao de medicao criada: {session_id}")
     renderer.measurement_detail(session)
     if _is_truthy(header.get("sem_serial")):
         ctx.measurements.save_session(session_id)
-        renderer.info("Sessao criada sem captura serial.")
+        _route_msg(ctx, "info", "Sessao criada sem captura serial.")
         return True
     while True:
         capture_error = ""
@@ -495,28 +507,28 @@ def _capture(ctx: CommandContext, args: str) -> bool:
         try:
             snapshots = _capture_serial_snapshots(header)
             if not snapshots:
-                renderer.warning("Nenhum TMA_DATA selecionado foi capturado.")
+                _route_msg(ctx, "warning", "Nenhum TMA_DATA selecionado foi capturado.")
         except (ClientError, OSError, ValueError) as exc:
             capture_error = str(exc)
-            renderer.error(f"Falha na captura serial: {exc}")
+            _route_msg(ctx, "error", f"Falha na captura serial: {exc}")
         action = _prompt_post_capture_action(
             has_snapshots=bool(snapshots),
             has_error=bool(capture_error),
         )
         if action == "refazer":
-            renderer.info("Refazendo testes com o mesmo cabecalho.")
+            _route_msg(ctx, "info", "Refazendo testes com o mesmo cabecalho.")
             continue
         if action == "descartar":
             ctx.measurements.delete_session(session_id)
-            renderer.warning("Sessao descartada.")
+            _route_msg(ctx, "warning", "Sessao descartada.")
             return True
         if action == "sair":
             ctx.measurements.abandon_session(session_id)
-            renderer.info("Sessao mantida localmente para continuar depois.")
+            _route_msg(ctx, "info", "Sessao mantida localmente para continuar depois.")
             return True
         if not snapshots:
             ctx.measurements.save_session(session_id)
-            renderer.warning("Sessao salva sem snapshots validos.")
+            _route_msg(ctx, "warning", "Sessao salva sem snapshots validos.")
             return True
         result = ctx.measurements.add_snapshots(session_id, snapshots)
         renderer.success(
@@ -525,7 +537,7 @@ def _capture(ctx: CommandContext, args: str) -> bool:
         )
         rejected_items = result.get("rejected_items") or []
         if rejected_items:
-            renderer.warning(f"Snapshots rejeitados na validacao: {len(rejected_items)}")
+            _route_msg(ctx, "warning", f"Snapshots rejeitados na validacao: {len(rejected_items)}")
         saved = ctx.measurements.save_session(session_id)
         _try_sync_saved_session(ctx, session_id)
         renderer.measurement_detail(saved)
@@ -604,14 +616,14 @@ def _measurement_header_payload(header: dict[str, Any]) -> dict[str, Any]:
 def _prompt_measurement_header(ctx: CommandContext | None = None) -> dict[str, Any]:
     header: dict[str, Any] | None = None
     while True:
-        renderer.info("Preencha o cabecalho. Pressione Enter para aceitar o padrao.")
-        renderer.info("Dados da maquina")
+        _route_msg(ctx, "info", "Preencha o cabecalho. Pressione Enter para aceitar o padrao.")
+        _route_msg(ctx, "info", "Dados da maquina")
         machine = _prompt_machine_header(header)
-        renderer.info("Dados da coleta")
+        _route_msg(ctx, "info", "Dados da coleta")
         collection = _prompt_collection_header(header)
-        renderer.info("Conexao serial")
+        _route_msg(ctx, "info", "Conexao serial")
         serial = _prompt_serial_header(header)
-        renderer.info("Selecao de TMA_DATA")
+        _route_msg(ctx, "info", "Selecao de TMA_DATA")
         current_verticals = header.get("verticais") if header else None
         current_sem_serial = bool(header.get("sem_serial")) if header else False
         header = {}
@@ -730,7 +742,7 @@ def _prompt(message: str, default: str = "", options: list[str] | None = None) -
     value = input().strip()
     value = value or default
     if options and value not in options:
-        renderer.warning("Opcao invalida: " + ", ".join(options))
+        _route_msg(ctx, "warning", "Opcao invalida: " + ", ".join(options))
         return _prompt(message, default, options)
     return value
 
@@ -750,7 +762,7 @@ def _prompt_bool(message: str, default: bool) -> bool:
         return True
     if value in {"nao", "n", "no", "false", "0"}:
         return False
-    renderer.warning("Responda com sim/nao ou s/n.")
+    _route_msg(ctx, "warning", "Responda com sim/nao ou s/n.")
     return _prompt_bool(message, default)
 
 
@@ -802,7 +814,7 @@ def _is_truthy(value: object) -> bool:
 def _new_session(ctx: CommandContext, args: str) -> bool:
     ctx.session = ctx.conversations.create_session()
     ctx.logger.log("chat_session_created", session_id=ctx.session.session_id)
-    renderer.success(f"Nova sessao de chat criada: {ctx.session.session_id}")
+    _route_msg(ctx, "success", f"Nova sessao de chat criada: {ctx.session.session_id}")
     return True
 
 
@@ -817,16 +829,16 @@ def _memory(ctx: CommandContext, args: str) -> bool:
 
 def _summary_chat(ctx: CommandContext, args: str) -> bool:
     if not ctx.session.history:
-        renderer.info("Sessao de chat atual ainda nao tem mensagens.")
+        _route_msg(ctx, "info", "Sessao de chat atual ainda nao tem mensagens.")
         return True
     try:
         summary = build_chat_summary(ctx)
     except ClientError as exc:
-        renderer.error(f"Falha ao resumir sessao: {exc}")
+        _route_msg(ctx, "error", f"Falha ao resumir sessao: {exc}")
         return True
     ctx.session.set_summary(summary)
     ctx.logger.log("summary_updated", session_id=ctx.session.session_id, automatic=False)
-    renderer.success(f"Resumo atualizado para a sessao {ctx.session.session_id}.")
+    _route_msg(ctx, "success", f"Resumo atualizado para a sessao {ctx.session.session_id}.")
     renderer.assistant(summary)
     return True
 
@@ -839,15 +851,15 @@ def _load_chat_session(ctx: CommandContext, args: str) -> bool:
         if not target:
             latest = ctx.conversations.latest_session()
             if latest is None:
-                renderer.info("Nenhuma sessao de chat persistida.")
+                _route_msg(ctx, "info", "Nenhuma sessao de chat persistida.")
                 return True
             ctx.session = latest
         else:
             ctx.session = ctx.conversations.load_session(target, event_logger=ctx.logger)
     except ValueError as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
         return True
-    renderer.success(f"Sessao carregada: {ctx.session.session_id}")
+    _route_msg(ctx, "success", f"Sessao carregada: {ctx.session.session_id}")
     ctx.logger.log("chat_session_loaded", session_id=ctx.session.session_id)
     renderer.info(
         f"Mensagens={len(ctx.session.history)} resumo={'sim' if bool(ctx.session.summary) else 'nao'}"
@@ -858,7 +870,7 @@ def _load_chat_session(ctx: CommandContext, args: str) -> bool:
 def _list_chat_sessions(ctx: CommandContext, args: str) -> bool:
     sessions = ctx.conversations.list_sessions()
     if not sessions:
-        renderer.info("Nenhuma sessao de chat persistida.")
+        _route_msg(ctx, "info", "Nenhuma sessao de chat persistida.")
         return True
     renderer.chat_sessions_table(sessions)
     return True
@@ -867,15 +879,15 @@ def _list_chat_sessions(ctx: CommandContext, args: str) -> bool:
 def _delete_chat_session(ctx: CommandContext, args: str) -> bool:
     session_id = args.strip()
     if not session_id:
-        renderer.error("Uso: /deletar_chat <id>")
-        renderer.info("Use /listar para ver os IDs disponiveis.")
+        _route_msg(ctx, "error", "Uso: /deletar_chat <id>")
+        _route_msg(ctx, "info", "Use /listar para ver os IDs disponiveis.")
         return True
 
     # resolve_unique reporta ambiguidade (diferente de resolve_session_id)
     try:
         resolved = ctx.conversations.resolve_unique(session_id)
     except ValueError as exc:
-        renderer.error(str(exc))
+        _route_msg(ctx, "error", str(exc))
         return True
 
     # Proteção: não permite deletar a sessão ativa
@@ -889,15 +901,15 @@ def _delete_chat_session(ctx: CommandContext, args: str) -> bool:
     # Confirmação interativa
     confirm = _prompt(f"Deletar sessao {resolved}? Esta acao e irreversivel. [s/N] ").strip().lower()
     if confirm not in {"s", "sim"}:
-        renderer.info("Operacao cancelada.")
+        _route_msg(ctx, "info", "Operacao cancelada.")
         return True
 
     deleted = ctx.conversations.delete_session(resolved)
     if deleted:
         ctx.logger.log("session_deleted", session_id=resolved)
-        renderer.success(f"Sessao {resolved} deletada.")
+        _route_msg(ctx, "success", f"Sessao {resolved} deletada.")
     else:
-        renderer.error(f"Falha ao deletar sessao {resolved}.")
+        _route_msg(ctx, "error", f"Falha ao deletar sessao {resolved}.")
     return True
 
 
@@ -911,7 +923,7 @@ def _export_chat_session(ctx: CommandContext, args: str) -> bool:
         try:
             session = ctx.conversations.load_session(session_id, event_logger=ctx.logger)
         except ValueError as exc:
-            renderer.error(str(exc))
+            _route_msg(ctx, "error", str(exc))
             return True
 
     output_dir = Path(".cous-data/exports")
@@ -935,7 +947,7 @@ def _export_chat_session(ctx: CommandContext, args: str) -> bool:
 
     output_path.write_text("\n".join(lines), encoding="utf-8")
     ctx.logger.log("session_exported", session_id=session.session_id, path=str(output_path.resolve()))
-    renderer.success(f"Sessao exportada: {output_path.resolve()}")
+    _route_msg(ctx, "success", f"Sessao exportada: {output_path.resolve()}")
     return True
 
 
@@ -947,7 +959,7 @@ def _confirm_feedback(ctx: CommandContext, args: str) -> bool:
       /confirmar <trace_id> [coment]    confirma uma resposta específica pelo trace_id
     """
     if ctx.feedback_store is None:
-        renderer.error("Feedback nao configurado.")
+        _route_msg(ctx, "error", "Feedback nao configurado.")
         return True
 
     args = args.strip()
@@ -968,7 +980,7 @@ def _confirm_feedback(ctx: CommandContext, args: str) -> bool:
         comment = ctx.session.last_assistant_message()
 
     if not trace_id:
-        renderer.error("Nenhuma resposta disponivel para confirmar.")
+        _route_msg(ctx, "error", "Nenhuma resposta disponivel para confirmar.")
         return True
 
     ctx.feedback_store.record(
@@ -984,12 +996,12 @@ def _confirm_feedback(ctx: CommandContext, args: str) -> bool:
         ctx.output_router.success(f"Feedback registrado: resposta confirmada (trace_id={trace_id}).")
         ctx.output_router.feedback_registered("confirmed", trace_id)
     else:
-        renderer.success(f"Feedback registrado: resposta confirmada (trace_id={trace_id}).")
+        _route_msg(ctx, "success", f"Feedback registrado: resposta confirmada (trace_id={trace_id}).")
     # Fase E: promover trace a golden no runtime
     try:
         ctx.opentracy.promote_to_golden(trace_id)
     except Exception as exc:
-        renderer.warning(f"Promocao a golden falhou: {exc}")
+        _route_msg(ctx, "warning", f"Promocao a golden falhou: {exc}")
     return True
 
 
@@ -1008,11 +1020,11 @@ def _looks_like_trace_id(value: str) -> bool:
 def _correct_feedback(ctx: CommandContext, args: str) -> bool:
     """Registra uma correção para a última resposta do agente."""
     if ctx.feedback_store is None:
-        renderer.error("Feedback nao configurado.")
+        _route_msg(ctx, "error", "Feedback nao configurado.")
         return True
     correction = args.strip()
     if not correction:
-        renderer.error("Uso: /corrigir <texto da correcao>")
+        _route_msg(ctx, "error", "Uso: /corrigir <texto da correcao>")
         return True
     ctx.feedback_store.record(
         feedback_type="correction",
@@ -1026,18 +1038,18 @@ def _correct_feedback(ctx: CommandContext, args: str) -> bool:
     if ctx.output_router:
         ctx.output_router.success("Feedback registrado: correcao aplicada.")
     else:
-        renderer.success("Feedback registrado: correcao aplicada.")
+        _route_msg(ctx, "success", "Feedback registrado: correcao aplicada.")
     return True
 
 
 def _solution_feedback(ctx: CommandContext, args: str) -> bool:
     """Registra uma solução aplicada após diagnóstico."""
     if ctx.feedback_store is None:
-        renderer.error("Feedback nao configurado.")
+        _route_msg(ctx, "error", "Feedback nao configurado.")
         return True
     solution = args.strip()
     if not solution:
-        renderer.error("Uso: /solucao <descricao da solucao>")
+        _route_msg(ctx, "error", "Uso: /solucao <descricao da solucao>")
         return True
     ctx.feedback_store.record(
         feedback_type="solution_applied",
@@ -1051,7 +1063,7 @@ def _solution_feedback(ctx: CommandContext, args: str) -> bool:
     if ctx.output_router:
         ctx.output_router.success("Feedback registrado: solucao aplicada.")
     else:
-        renderer.success("Feedback registrado: solucao aplicada.")
+        _route_msg(ctx, "success", "Feedback registrado: solucao aplicada.")
     return True
 
 
@@ -1061,7 +1073,7 @@ def _sync_measurements(ctx: CommandContext, args: str) -> bool:
         try:
             synced = ctx.measurements.sync_session(target)
         except (ClientError, ValueError) as exc:
-            renderer.error(f"Falha ao sincronizar: {exc}")
+            _route_msg(ctx, "error", f"Falha ao sincronizar: {exc}")
             return True
         renderer.success(
             "Medicao sincronizada: "
@@ -1093,14 +1105,14 @@ def _sync_measurements(ctx: CommandContext, args: str) -> bool:
         try:
             result = ctx.measurements.sync_pending_sessions(on_progress=update_bar)
         except Exception as exc:
-            renderer.error(f"Falha ao sincronizar: {exc}")
+            _route_msg(ctx, "error", f"Falha ao sincronizar: {exc}")
             return True
 
-    renderer.success(f"Sincronizadas: {result['synced_count']}")
+    _route_msg(ctx, "success", f"Sincronizadas: {result['synced_count']}")
     if result["failed"]:
-        renderer.warning(f"Falhas ({result['failed_count']}):")
+        _route_msg(ctx, "warning", f"Falhas ({result['failed_count']}):")
         for failure in result["failed"]:
-            renderer.error(f"  {failure['session_id']}: {failure['error']}")
+            _route_msg(ctx, "error", f"  {failure['session_id']}: {failure['error']}")
     return True
 
 
@@ -1109,7 +1121,7 @@ def _default_session_id(ctx: CommandContext, action: str) -> str:
     if session is None:
         return ""
     session_id = str(session.get("id") or "")
-    renderer.info(f"Usando a sessao mais recente para /{action}: {session_id}")
+    _route_msg(ctx, "info", f"Usando a sessao mais recente para /{action}: {session_id}")
     return session_id
 
 
@@ -1117,7 +1129,7 @@ def _prompt_measurement_session_id(ctx: CommandContext, action: str) -> str:
     session = ctx.measurements.latest_session()
     default = str(session.get("id") or "") if session else ""
     if default:
-        renderer.info(f"Sessao mais recente disponivel para /{action}: {default}")
+        _route_msg(ctx, "info", f"Sessao mais recente disponivel para /{action}: {default}")
     return _prompt("ID da medicao", default)
 
 
@@ -1125,7 +1137,7 @@ def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
     try:
         synced = ctx.measurements.sync_session(session_id)
     except Exception as exc:
-        renderer.warning(f"Sessao salva localmente, mas sync remoto falhou: {exc}")
+        _route_msg(ctx, "warning", f"Sessao salva localmente, mas sync remoto falhou: {exc}")
         return
     renderer.success(
         "Sessao sincronizada com o backend de medicoes: "
@@ -1149,7 +1161,7 @@ def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
         if job_id:
             _poll_job(ctx, job_id)
     except Exception as exc:
-        renderer.warning(f"Indexacao automatica da medicao falhou: {exc}")
+        _route_msg(ctx, "warning", f"Indexacao automatica da medicao falhou: {exc}")
 
 
 def build_chat_summary(ctx: CommandContext) -> str:

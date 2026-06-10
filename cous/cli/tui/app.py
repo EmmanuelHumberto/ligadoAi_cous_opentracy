@@ -9,8 +9,8 @@ from textual import on, work
 
 from cous.cli.tui.events import (
     ChatResponse, ChatSessionsData, DocumentsData,
-    LogLineData, MeasurementDetailData, MeasurementsData,
-    SearchResultsData, StatusUpdated, UserInput,
+    JobProgressData, LogLineData, MeasurementDetailData,
+    MeasurementsData, SearchResultsData, StatusUpdated, UserInput,
 )
 from cous.cli.tui.output_router import OutputRouter
 from cous.cli.tui.poller import StatusPoller
@@ -39,6 +39,8 @@ class CousApp(App):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Sair", show=True),
         Binding("ctrl+s", "toggle_sidebar", "Sidebar", show=True),
+        Binding("ctrl+r", "clear_chat", "Limpar", show=False),
+        Binding("f1", "show_help", "Ajuda", show=True),
         Binding("escape", "focus_input", "Input", show=False),
     ]
 
@@ -334,5 +336,38 @@ class CousApp(App):
         try:
             sidebar = self.query_one(Sidebar)
             sidebar.display = not sidebar.display
+        except Exception:
+            pass
+
+    def action_clear_chat(self) -> None:
+        """Limpa o scroll do chat (Ctrl+R)."""
+        try:
+            from cous.cli.tui.widgets.chat import ChatScroll
+            scroll = self.query_one(ChatScroll)
+            scroll.clear()
+        except Exception:
+            pass
+
+    def action_show_help(self) -> None:
+        """Mostra lista de comandos no LogPanel (F1)."""
+        if self._command_router:
+            from cous.cli.tui.widgets.log_panel import LogPanel
+            try:
+                log = self.query_one(LogPanel)
+                log.add_line("info", "── Comandos disponíveis ──")
+                for name, desc in self._command_router.descriptions():
+                    if desc.startswith("Atalho de"):
+                        continue
+                    log.add_line("info", f"  /{name:<14} {desc}")
+            except Exception:
+                pass
+
+    @on(JobProgressData)
+    def handle_job_progress(self, event: JobProgressData) -> None:
+        from cous.cli.tui.widgets.log_panel import LogPanel
+        try:
+            log = self.query_one(LogPanel)
+            log.add_line("info",
+                f"job={event.job_id[:8]} status={event.status} stage={event.stage}")
         except Exception:
             pass
