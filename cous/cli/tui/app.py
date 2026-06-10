@@ -151,9 +151,7 @@ class CousApp(App):
 
         if text.startswith("/"):
             if self.ctx and self._command_router:
-                result = self._command_router.dispatch(text, self.ctx)
-                if result is False:
-                    self.exit()
+                self._do_command(text)
             return
 
         self._do_chat(text)
@@ -212,6 +210,19 @@ class CousApp(App):
                            trace_id=trace_id, text=response)
 
         self._maybe_refresh_summary(ctx)
+
+    # ── Command worker ───────────────────────────────────────────────────
+
+    @work(exclusive=False, thread=True)
+    async def _do_command(self, text: str) -> None:
+        """Worker de comandos — executa dispatch em thread separada."""
+        ctx = self.ctx
+        if ctx is None or self._command_router is None:
+            return
+
+        result = self._command_router.dispatch(text, ctx)
+        if result is False:
+            self.exit()
 
     # ── Handlers de mensagens ───────────────────────────────────────────
 
