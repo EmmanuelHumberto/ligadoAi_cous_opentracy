@@ -51,7 +51,7 @@ class CousApp(App):
         knowledge: object,
         measurements: object,
         conversations: object,
-        logger: object,
+        event_logger: object,
         *,
         feedback_store: object = None,
         system_prompt_cache: object = None,
@@ -63,7 +63,7 @@ class CousApp(App):
         self._knowledge = knowledge
         self._measurements = measurements
         self._conversations = conversations
-        self._logger = logger
+        self._logger = event_logger
         self._feedback_store = feedback_store
         self._system_prompt_cache = system_prompt_cache
         self._trace_emitter = trace_emitter

@@ -84,7 +84,7 @@ def _run_tui(
         knowledge=knowledge,
         measurements=measurements,
         conversations=conversations,
-        logger=logger,
+        event_logger=logger,
         feedback_store=feedback_store,
         system_prompt_cache=system_prompt_cache,
         trace_emitter=trace_emitter,
