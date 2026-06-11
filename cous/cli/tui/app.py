@@ -238,7 +238,7 @@ class CousApp(App):
     # ── Command worker ───────────────────────────────────────────────────
 
     @work(exclusive=False, thread=True)
-    async def _do_command(self, text: str) -> None:
+    def _do_command(self, text: str) -> None:
         """Worker de comandos — executa dispatch em thread separada."""
         ctx = self.ctx
         if ctx is None or self._command_router is None:
