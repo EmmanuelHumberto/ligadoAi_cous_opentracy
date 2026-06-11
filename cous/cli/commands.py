@@ -137,7 +137,6 @@ def _help(ctx: CommandContext, args: str) -> bool:
 
     rows = []
     for label, color, cmds in _GROUPS:
-        rows.append([f"[bold {color}]# {label}[/]", ""])
         for cmd in sorted(cmds):
             desc = cmd_desc.get(cmd, "")
             if desc.startswith("Atalho de"):
