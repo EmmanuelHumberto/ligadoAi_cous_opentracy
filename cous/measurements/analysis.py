@@ -61,6 +61,7 @@ def summarize_session(session: dict[str, Any]) -> dict[str, Any]:
         "hall": _summarize_hall(by_type.get("hall", [])),
         "power": _summarize_power(by_type.get("power", [])),
         "vibration": _summarize_vibration(by_type.get("vibration", [])),
+        "course": _summarize_course(by_type.get("course", [])),
         "snapshots_by_type": session.get("snapshots_by_type") or {},
         "observacoes": header.get("observacoes") or "",
         "tecnico": header.get("tecnico") or "",
@@ -271,6 +272,16 @@ def _summarize_vibration(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
         "dominant_frequency_hz_avg": _avg(snapshots, "dominant_frequency_hz"),
         "peak_norm_mg_max": max(peak_values) if peak_values else None,
     }
+
+
+def _summarize_course(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+    if not snapshots:
+        return {}
+    values = _numbers(snapshots, "course_mm")
+    if not values:
+        return {"count": 0, "course_mm_avg": None, "course_mm_min": None, "course_mm_max": None}
+    return {"count": len(values), "course_mm_avg": mean(values),
+            "course_mm_min": min(values), "course_mm_max": max(values)}
 
 
 def _avg(snapshots: list[dict[str, Any]], key: str) -> float | None:

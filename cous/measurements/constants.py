@@ -4,8 +4,7 @@ from __future__ import annotations
 
 # Verticais suportadas pelo protocolo TMA_DATA.
 # Esta é a fonte canônica — não alterar em serial_capture.py ou validation.py.
-# course foi removido: sem _summarize_course em analysis.py, vertical órfão.
-DEFAULT_VERTICALS: tuple[str, ...] = ("hall", "power", "vibration")
+DEFAULT_VERTICALS: tuple[str, ...] = ("hall", "power", "course", "vibration")
 
 # Mapa de aliases de tipo para o nome canônico da vertical.
 TYPE_ALIASES: dict[str, str] = {
@@ -13,6 +12,8 @@ TYPE_ALIASES: dict[str, str] = {
     "hall_snapshot": "hall",
     "power": "power",
     "power_snapshot": "power",
+    "course": "course",
+    "course_snapshot": "course",
     "vibration": "vibration",
     "vibration_snapshot": "vibration",
 }

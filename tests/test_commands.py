@@ -66,10 +66,10 @@ def test_parse_measurement_header_args_preserves_technical_fields():
 
 
 def test_prompt_verticals_accepts_yes_no_shortcuts(monkeypatch):
-    answers = iter(["s", "n", "n"])
+    answers = iter(["s", "n", "sim", "nao"])
     monkeypatch.setattr("builtins.input", lambda: next(answers))
 
-    assert _prompt_verticals() == ["hall"]
+    assert _prompt_verticals() == ["course", "hall"]
 
 
 def test_prompt_does_not_parse_default_as_rich_markup(monkeypatch):
