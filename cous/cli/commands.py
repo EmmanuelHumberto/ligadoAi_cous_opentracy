@@ -842,7 +842,6 @@ def _prompt(message: str, default: str = "", options: list[str] | None = None, *
     keep_history=True:  mantém histórico (útil para s/n).
     """
     if ctx is not None and ctx.output_router:
-        ctx.output_router.info(f"Preenchendo: {message}")
         return _tui_prompt(ctx, message, default, options)
     # Modo legado: limpa histórico e mostra campo atual
     if not keep_history:
