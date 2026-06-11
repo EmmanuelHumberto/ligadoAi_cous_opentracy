@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Container, VerticalScroll
 from textual.widgets import Input, Static
+
+from cous.cli.tui.widgets.statusbar import StatusBar
 
 
 class ChatBubble(Static):
@@ -36,6 +38,7 @@ class ChatScroll(VerticalScroll):
     DEFAULT_CSS = """
     ChatScroll {
         padding: 1 2;
+        scrollbar-size: 1 1;
     }
     """
 
@@ -79,13 +82,16 @@ class InputBar(Static):
         return UserInput(text)
 
 
-class ChatPanel(Static):
+class ChatPanel(Container):
     """Painel principal de chat — composto por ChatScroll + InputBar."""
 
     DEFAULT_CSS = """
     ChatPanel {
-        width: 1fr;
-        border-right: solid #2E2F33;
+        width: 65%;
+        border: solid #2E2F33;
+    }
+    ChatPanel:focus-within {
+        border: solid #639922;
     }
     .bubble-operator {
         background: #1A3A5C;
@@ -106,5 +112,6 @@ class ChatPanel(Static):
     """
 
     def compose(self) -> ComposeResult:
+        yield StatusBar(id="status-bar")
         yield ChatScroll(id="chat-scroll")
         yield InputBar(id="input-bar")

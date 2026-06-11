@@ -16,11 +16,10 @@ class StagesPanel(Container):
 
     DEFAULT_CSS = """
     StagesPanel {
+        height: 4;
         padding: 0;
-        border-bottom: solid #2E2F33;
     }
     StagesPanel Static {
-        height: 1;
         padding: 0 1;
         color: #888888;
     }
@@ -47,8 +46,8 @@ class StagesPanel(Container):
             error = s.get("error")
 
             if error:
-                lines.append(f" [red]✗[/] {stage_name:<10} [red]{error}[/]")
+                lines.append(f" [red]FAIL[/] {stage_name:<10} [red]{error}[/]")
             else:
-                lines.append(f" [green]✓[/] {stage_name:<10} {duration}ms {technique}")
+                lines.append(f" [green]OK[/]  {stage_name:<10} {duration}ms {technique}")
 
         self._content.update("\n".join(lines))

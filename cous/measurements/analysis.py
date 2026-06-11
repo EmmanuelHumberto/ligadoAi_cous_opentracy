@@ -301,18 +301,53 @@ def _fmt(value: object) -> str:
     return str(value)
 
 
-def index_measurement_session(session: dict[str, Any]) -> tuple[str, dict[str, str]]:
-    """Gera documento markdown com sumário da medição e metadata normalizada.
+def index_measurement_session(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Gera documento markdown com sumário da medição e metadata para o OpenTracy.
 
-    Retorna (markdown, metadata) para envio ao POST /knowledge/index.
+    Retorna (markdown, metadata) onde metadata segue o schema KnowledgeMetadata:
+      manufacturer, model, category, document_type, title, extra
+
+    O extra contém todos os campos do header com tipos puros (NUMBER, TEXT, LIST).
     """
     header = session.get("header", {})
     markdown = build_markdown_report(session)
-    metadata = {
-        "source": "measurement",
+
+    def _num(value: object) -> float | None:
+        """Converte para float, retorna None se inválido."""
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    extra = {
         "session_id": str(session.get("id", "")),
-        "machine": f"{header.get('fabricante', '')} {header.get('modelo', '')}".strip(),
         "serial": str(header.get("numero_serie", "")),
-        "tipo_coleta": str(header.get("tipo_coleta", "")),
+        "source": "measurement",
+        # Metadados da máquina
+        "tipo_maquina": str(header.get("tipo_maquina", "")),
+        "tipo_motor": str(header.get("tipo_motor", "")),
+        "sistema_transmissao": str(header.get("sistema_transmissao", "")),
+        # Curso (numérico)
+        "curso_nominal_mm": _num(header.get("curso_nominal_mm")),
+        "curso_min_mm": _num(header.get("curso_min_mm")),
+        "curso_max_mm": _num(header.get("curso_max_mm")),
+        # Operador
+        "tecnico": str(header.get("tecnico", "")),
+        "observacoes": str(header.get("observacoes", "")),
+        "verticais": list(header.get("verticais") or []),
+        "total_snapshots": session.get("total_snapshots", 0),
+    }
+    # Remove campos com None
+    extra = {k: v for k, v in extra.items() if v is not None}
+
+    metadata = {
+        "manufacturer": str(header.get("fabricante", "")),
+        "model": str(header.get("modelo", "")),
+        "category": str(header.get("tipo_coleta", "")),
+        "document_type": "measurement",
+        "title": f"Medição {str(session.get('id', ''))[:20]}",
+        "extra": extra,
     }
     return markdown, metadata

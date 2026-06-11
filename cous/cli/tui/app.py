@@ -8,10 +8,7 @@ from textual.containers import Horizontal
 from textual import on, work
 
 from cous.cli.tui.events import (
-    ChatResponse, ChatSessionsData, DocumentsData,
-    JobProgressData, LogLineData, MeasurementDetailData,
-    MeasurementsData, PromptRequest, PromptResponse,
-    SearchResultsData, StatusUpdated, UserInput,
+    ChatResponse, InfoLine, PromptRequest, StatusUpdated, TableData, UserInput,
 )
 from cous.cli.tui.output_router import OutputRouter
 from cous.cli.tui.poller import StatusPoller
@@ -19,6 +16,7 @@ from cous.cli.tui.state import AppState
 from cous.cli.tui.widgets.bottombar import BottomBar
 from cous.cli.tui.widgets.chat import ChatPanel
 from cous.cli.tui.widgets.sidebar import Sidebar
+from cous.cli.tui.widgets.statusbar import StatusBar
 from cous.cli.tui.widgets.topbar import TopBar
 from cous.clients.base import ClientError
 
@@ -26,7 +24,7 @@ from cous.clients.base import ClientError
 class CousApp(App):
     """Aplicação Textual raiz do Cous.
 
-    Layout fixo: TopBar + Horizontal(ChatPanel, Sidebar) + BottomBar.
+    Layout fixo: TopBar + StatusBar + Horizontal(ChatPanel, Sidebar) + BottomBar.
     Workers: ChatWorker, StatusPoller.
     """
 
@@ -178,7 +176,11 @@ class CousApp(App):
 
         from cous.cli.tui.widgets.chat import ChatScroll
         scroll = self.query_one(ChatScroll)
-        scroll.add_bubble("pensando...", role="system")
+
+        # Animação de "Pensando..." no input
+        import asyncio
+        inp = self.query_one("#chat-input")
+        dots_task = asyncio.create_task(self._animate_thinking(inp))
 
         ctx.session.add("user", text)
         if self._event_log:
@@ -190,13 +192,23 @@ class CousApp(App):
             history.insert(0, {"role": "system", "content": system_prompt})
 
         try:
-            result = ctx.opentracy.chat(
+            import asyncio
+            result = await asyncio.to_thread(
+                ctx.opentracy.chat,
                 text, history=history, session_id=ctx.session.session_id,
             )
         except ClientError as exc:
-            self.post_message(LogLineData(level="error", text=str(exc)))
+            dots_task.cancel()
+            self.post_message(InfoLine(text=f"[red]▸[/] {exc}"))
+            self._restore_input()
+            return
+        except Exception as exc:
+            dots_task.cancel()
+            self.post_message(InfoLine(text=f"[red]▸[/] Erro: {exc}"))
+            self._restore_input()
             return
 
+        dots_task.cancel()
         response = str(result.get("response") or "")
         ctx.session.add("assistant", response)
         trace_id = str(result.get("trace_id") or "")
@@ -232,6 +244,10 @@ class CousApp(App):
         if ctx is None or self._command_router is None:
             return
 
+        # Todo comando novo limpa o info-panel
+        if self.output_router:
+            self.output_router.clear()
+
         result = self._command_router.dispatch(text, ctx)
         if result is False:
             self.exit()
@@ -244,93 +260,76 @@ class CousApp(App):
         scroll = self.query_one(ChatScroll)
         scroll.add_bubble(event.text, role="agent", trace_id=event.trace_id)
 
-        # Atualizar StagesPanel
+        # Restaura input
+        self._restore_input()
+
+        # Pipeline como bolha de sistema no chat (não na Sidebar)
         stages = getattr(event, "stages", None) or []
         if stages:
-            from cous.cli.tui.widgets.stages import StagesPanel
-            try:
-                panel = self.query_one(StagesPanel)
-                panel.update(stages)
-            except Exception:
-                pass
+            lines = ["Pipeline:"]
+            for s in stages:
+                stage_name = s.get("stage", "?")
+                duration = s.get("duration_ms", 0)
+                technique = s.get("technique", "")
+                error = s.get("error")
+                if error:
+                    lines.append(f"  [red]FAIL[/] {stage_name}: {error}")
+                else:
+                    lines.append(f"  [green]OK[/]  {stage_name}: {duration}ms {technique}")
+            scroll.add_bubble("\n".join(lines), role="system")
 
     @on(StatusUpdated)
     def handle_status_updated(self, event: StatusUpdated) -> None:
         topbar = self.query_one(TopBar)
         topbar.update_status(event.state)
 
-        from cous.cli.tui.widgets.status import StatusPanel
         try:
-            status = self.query_one(StatusPanel)
+            status = self.query_one(StatusBar)
             status.update_from_state(event.state)
         except Exception:
             pass
 
-    @on(LogLineData)
-    def handle_log_line(self, event: LogLineData) -> None:
-        from cous.cli.tui.widgets.log_panel import LogPanel
+    @on(InfoLine)
+    def handle_info_line(self, event: InfoLine) -> None:
+        """Escreve no info-log (RichLog)."""
         try:
-            log = self.query_one(LogPanel)
-            log.add_line(event.level, event.text)
+            # Mostra RichLog, esconde DataTable
+            self.query_one("#info-log").display = True
+            self.query_one("#info-table").display = False
+            log = self.query_one("#info-log")
+            if event.clear:
+                log.clear()
+            if event.text:
+                log.write(event.text)
         except Exception:
             pass
 
-    # ── Handlers de dados (tabelas) ─────────────────────────────────────
-
-    @on(SearchResultsData)
-    def handle_search_results(self, event: SearchResultsData) -> None:
-        rows = [
-            f"{r.get('document_id', '')[:8]:<10} score={r.get('score', 0):.2f} {r.get('text', '')[:100]}"
-            for r in (event.results or [])[:15]
-        ]
-        self._show_side_data("Busca", rows)
-
-    @on(DocumentsData)
-    def handle_documents(self, event: DocumentsData) -> None:
-        rows = [
-            f"{d.get('id', '')[:8]:<10} {d.get('title', '-')[:60]}"
-            for d in (event.docs or [])[:15]
-        ]
-        self._show_side_data("Documentos", rows)
-
-    @on(MeasurementsData)
-    def handle_measurements(self, event: MeasurementsData) -> None:
-        rows = []
-        for s in (event.sessions or [])[:15]:
-            h = s.get("header") or {}
-            rows.append(
-                f"{s.get('id', '')[:16]:<18} {h.get('fabricante', '-')} {h.get('modelo', '-')} {s.get('status', '-')}"
-            )
-        self._show_side_data("Medições", rows)
-
-    @on(ChatSessionsData)
-    def handle_chat_sessions(self, event: ChatSessionsData) -> None:
-        rows = [
-            f"{s.get('id', '')[:20]:<22} msgs={s.get('messages', 0)} {s.get('preview', '-')[:60]}"
-            for s in (event.sessions or [])[:15]
-        ]
-        self._show_side_data("Sessões", rows)
-
-    @on(MeasurementDetailData)
-    def handle_measurement_detail(self, event: MeasurementDetailData) -> None:
-        s = event.session or {}
-        h = s.get("header") or {}
-        rows = [
-            f"ID: {s.get('id', '-')}",
-            f"Status: {s.get('status', '-')}",
-            f"Fabricante: {h.get('fabricante', '-')}",
-            f"Modelo: {h.get('modelo', '-')}",
-            f"Série: {h.get('numero_serie', '-')}",
-            f"Snapshots: {s.get('total_snapshots', 0)}",
-            f"Sync: {s.get('sync_status', '-')}",
-        ]
-        self._show_side_data("Medição", rows)
-
-    def _show_side_data(self, title: str, rows: list[str]) -> None:
-        from cous.cli.tui.widgets.sidebar import SidePanel
+    @on(TableData)
+    def handle_table_data(self, event: TableData) -> None:
+        """Popula o DataTable com colunas e linhas."""
         try:
-            panel = self.query_one(SidePanel)
-            panel.show_data(title, rows)
+            table = self.query_one("#info-table")
+            table.clear(columns=True)
+            table.add_columns(*event.columns)
+            table.add_rows(event.rows)
+            # Mostra DataTable, esconde RichLog
+            table.display = True
+            self.query_one("#info-log").display = False
+        except Exception:
+            pass
+
+    @on(PromptRequest)
+    def handle_prompt_request(self, event: PromptRequest) -> None:
+        """Configura o InputBar para modo prompt."""
+        self._active_prompt = event
+        try:
+            inp = self.query_one("#chat-input")
+            placeholder = event.question
+            if event.default:
+                placeholder += f" [{event.default}]"
+            inp.placeholder = placeholder
+            inp.value = event.default
+            inp.focus()
         except Exception:
             pass
 
@@ -346,6 +345,31 @@ class CousApp(App):
             ctx.session.set_summary(summary)
             if self._event_log:
                 self._event_log.log("summary_updated", session_id=ctx.session.session_id, automatic=True)
+        except Exception:
+            pass
+
+    async def _animate_thinking(self, inp: object) -> None:
+        """Anima dots no placeholder enquanto processa."""
+        frames = [
+            "▸ Pensando \033[32m●\033[0m",
+            "▸ Pensando \033[34m●\033[0m",
+            "▸ Pensando \033[33m●\033[0m",
+        ]
+        import asyncio
+        try:
+            while True:
+                for frame in frames:
+                    inp.placeholder = frame
+                    await asyncio.sleep(0.4)
+        except asyncio.CancelledError:
+            pass
+
+    def _restore_input(self) -> None:
+        """Restaura placeholder e foco do input."""
+        try:
+            inp = self.query_one("#chat-input")
+            inp.placeholder = "▸ Digite uma mensagem ou /comando..."
+            inp.focus()
         except Exception:
             pass
 
@@ -372,40 +396,11 @@ class CousApp(App):
             pass
 
     def action_show_help(self) -> None:
-        """Mostra lista de comandos no LogPanel (F1)."""
-        if self._command_router:
-            from cous.cli.tui.widgets.log_panel import LogPanel
-            try:
-                log = self.query_one(LogPanel)
-                log.add_line("info", "── Comandos disponíveis ──")
-                for name, desc in self._command_router.descriptions():
-                    if desc.startswith("Atalho de"):
-                        continue
-                    log.add_line("info", f"  /{name:<14} {desc}")
-            except Exception:
-                pass
-
-    @on(JobProgressData)
-    def handle_job_progress(self, event: JobProgressData) -> None:
-        from cous.cli.tui.widgets.log_panel import LogPanel
-        try:
-            log = self.query_one(LogPanel)
-            log.add_line("info",
-                f"job={event.job_id[:8]} status={event.status} stage={event.stage}")
-        except Exception:
-            pass
-
-    @on(PromptRequest)
-    def handle_prompt_request(self, event: PromptRequest) -> None:
-        """Configura o InputBar para modo prompt."""
-        self._active_prompt = event
-        try:
-            inp = self.query_one("#chat-input")
-            placeholder = event.question
-            if event.default:
-                placeholder += f" [{event.default}]"
-            inp.placeholder = placeholder
-            inp.value = event.default
-            inp.focus()
-        except Exception:
-            pass
+        """Mostra lista de comandos no info-panel (F1)."""
+        if self._command_router and self.output_router:
+            lines = ["── Comandos ──"]
+            for name, desc in self._command_router.descriptions():
+                if desc.startswith("Atalho de"):
+                    continue
+                lines.append(f"  /{name:<14} {desc}")
+            self.output_router._info("\n".join(lines))

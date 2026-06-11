@@ -115,6 +115,24 @@ class UserInput(Message):
         super().__init__()
 
 
+class InfoLine(Message):
+    """Linha de informação para o info-panel (RichLog único na Sidebar)."""
+
+    def __init__(self, text: str, clear: bool = False) -> None:
+        self.text = text
+        self.clear = clear
+        super().__init__()
+
+
+class TableData(Message):
+    """Dados tabulares para o DataTable na Sidebar."""
+
+    def __init__(self, columns: list[str], rows: list[list[str]]) -> None:
+        self.columns = columns
+        self.rows = rows
+        super().__init__()
+
+
 class PromptRequest(Message):
     """Requisição de prompt interativo (modo TUI)."""
 
@@ -134,3 +152,6 @@ class PromptResponse(Message):
         self.text = text
         self.event = event  # threading.Event para desbloquear
         super().__init__()
+
+
+

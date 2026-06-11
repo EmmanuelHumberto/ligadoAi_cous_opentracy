@@ -1,75 +1,43 @@
-"""Sidebar — orquestrador dos painéis laterais."""
+"""Sidebar — painel lateral com info.
+
+Layout:
+  ┌─ INFO ───┐  — DataTable + RichLog
+  └──────────┘
+"""
 
 from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Container
-from textual.widgets import Collapsible, Static
-
-from cous.cli.tui.widgets.log_panel import LogPanel
-from cous.cli.tui.widgets.stages import StagesPanel
-from cous.cli.tui.widgets.status import StatusPanel
-
-
-class SidePanel(Container):
-    """Painel de dados expansível para tabelas de /buscar, /indexados, etc."""
-
-    DEFAULT_CSS = """
-    SidePanel {
-        padding: 0;
-        border-bottom: solid #2E2F33;
-        height: 20;
-    }
-    SidePanel Static {
-        padding: 0 1;
-        color: #C8C8C8;
-    }
-    """
-
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self._title = "Dados"
-        self._content = Static("")
-
-    def compose(self) -> ComposeResult:
-        yield self._content
-
-    def show_data(self, title: str, rows: list[str]) -> None:
-        """Exibe dados tabulares no painel."""
-        self._title = title
-        self._content.update("\n".join(rows[:30]))  # limita 30 linhas
+from textual.widgets import DataTable, RichLog
 
 
 class Sidebar(Container):
-    """Barra lateral com painéis colapsáveis.
-
-    Layout:
-      StatusPanel (sempre visível)
-      StagesPanel (após chat)
-      SidePanel (tabelas de dados)
-      LogPanel (stream de eventos)
-    """
+    """Painel lateral direito: info (DataTable ou RichLog)."""
 
     DEFAULT_CSS = """
     Sidebar {
-        width: 28;
+        width: 35%;
         background: #1E1F22;
-        border-left: solid #2E2F33;
+        border: solid #3A3D41;
+        border-title-color: #82AAFF;
+        border-title-background: #1E1F22;
+        border-title-style: bold;
+        border-title-align: center;
+        padding: 0 1;
     }
-    Sidebar Collapsible {
-        border-bottom: solid #2E2F33;
+    #info-table {
+        height: 1fr;
+        scrollbar-size: 1 1;
+    }
+    #info-log {
+        height: 1fr;
+        scrollbar-size: 1 1;
+        color: #B0B0B0;
     }
     """
 
     def compose(self) -> ComposeResult:
-        with Collapsible(title="STATUS"):
-            yield StatusPanel(id="status-panel")
-
-        with Collapsible(title="PIPELINE", collapsed=True):
-            yield StagesPanel(id="stages-panel")
-
-        with Collapsible(title="DADOS", collapsed=True):
-            yield SidePanel(id="side-panel")
-
-        with Collapsible(title="LOGS"):
-            yield LogPanel(id="log-panel")
+        self.border_title = " ℹ INFO "
+        yield DataTable(id="info-table")
+        yield RichLog(id="info-log", highlight=False, markup=True, wrap=True, max_lines=30)

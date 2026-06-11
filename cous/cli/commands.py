@@ -11,6 +11,7 @@ from typing import Any
 
 from cous.application.session import ChatSession, ConversationStore
 from cous.cli import renderer
+from cous.cli.tui.events import TableData
 from cous.clients.base import ClientError
 from cous.clients.knowledge import KnowledgeClient
 from cous.clients.measurements import MeasurementsClient
@@ -122,10 +123,29 @@ def build_router() -> CommandRouter:
 
 
 def _help(ctx: CommandContext, args: str) -> bool:
-    for name, description in build_router().descriptions():
-        if description.startswith("Atalho de"):
-            continue
-        _route_msg(ctx, "info", f"{name:<12} {description}")
+    _GROUPS = [
+        ("Gerais",    "#C8C8C8", ["/ajuda", "/sair", "/limpar", "/status", "/tools"]),
+        ("Chat",      "#82AAFF", ["/novo", "/listar", "/carregar", "/memoria",
+                                   "/resumo", "/deletar_chat", "/exportar"]),
+        ("Feedback",  "#FFB86C", ["/confirmar", "/corrigir", "/solucao"]),
+        ("Knowledge", "#639922", ["/validar", "/indexar", "/indexados", "/buscar", "/remover"]),
+        ("Medições",  "#56B6C2", ["/capturar", "/medicoes", "/medicao",
+                                   "/sincronizar", "/diagnostico", "/laudo"]),
+    ]
+    router = build_router()
+    cmd_desc = dict(router.descriptions())
+
+    rows = []
+    for label, color, cmds in _GROUPS:
+        rows.append([f"[bold {color}]# {label}[/]", ""])
+        for cmd in sorted(cmds):
+            desc = cmd_desc.get(cmd, "")
+            if desc.startswith("Atalho de"):
+                continue
+            rows.append([f"[bold {color}]{cmd}[/]", f"[dim]{desc}[/]"])
+
+    if ctx.output_router:
+        ctx.output_router._post(TableData(["Comando", "Descrição"], rows))
     return True
 
 
@@ -134,7 +154,10 @@ def _exit(ctx: CommandContext, args: str) -> bool:
 
 
 def _clear(ctx: CommandContext, args: str) -> bool:
-    renderer.console.clear()
+    if ctx.output_router:
+        ctx.output_router.clear()
+    else:
+        renderer.console.clear()
     return True
 
 
@@ -205,7 +228,7 @@ def _index(ctx: CommandContext, args: str) -> bool:
         return True
     targets = _collect_index_targets(target)
     if not targets:
-        renderer.warning(
+        _route_msg(ctx, "warning",
             "Nenhum arquivo suportado encontrado. Tipos atuais: "
             + ", ".join(sorted(SUPPORTED_INDEX_EXTENSIONS))
         )
@@ -216,12 +239,20 @@ def _index(ctx: CommandContext, args: str) -> bool:
         for path in targets:
             validation = ctx.knowledge.validate(path)
             if not validation.get("approved"):
-                renderer.warning(
+                _route_msg(ctx, "warning",
                     f"Ignorado: {path.name} "
                     f"{_format_validation_errors(validation)}"
                 )
                 continue
-            created = ctx.knowledge.index(path)
+            # Extrai metadados estruturados do conteúdo do arquivo
+            metadata = None
+            try:
+                from cous.knowledge.metadata import extract_metadata
+                text = path.read_text(encoding="utf-8", errors="replace")
+                metadata = extract_metadata(text, str(path))
+            except Exception:
+                pass  # fallback: sem metadados
+            created = ctx.knowledge.index(path, metadata=metadata)
             job_id = str(created.get("job_id"))
             _route_msg(ctx, "info", f"Job criado: {job_id} arquivo={path.name}")
             _poll_job(ctx, job_id)
@@ -362,7 +393,7 @@ def _search(ctx: CommandContext, args: str) -> bool:
     try:
         results = ctx.knowledge.search(query.strip())
         if ctx.output_router:
-            ctx.output_router.search_results(results)
+            ctx.output_router.search_results(results, query=query.strip())
         else:
             renderer.search_results(results)
     except ClientError as exc:
@@ -432,11 +463,14 @@ def _measurement(ctx: CommandContext, args: str) -> bool:
         return True
     try:
         session = ctx.measurements.get_session(session_id)
+        if session is None:
+            _route_msg(ctx, "error", f"Medicao nao encontrada: {session_id}")
+            return True
         if ctx.output_router:
             ctx.output_router.measurement_detail(session)
         else:
             renderer.measurement_detail(session)
-    except (ClientError, ValueError) as exc:
+    except (ClientError, ValueError, AttributeError) as exc:
         _route_msg(ctx, "error", str(exc))
     return True
 
@@ -450,7 +484,10 @@ def _measurement_report(ctx: CommandContext, args: str) -> bool:
         result = ctx.measurements.report(session_id)
         markdown = str(result.get("markdown") or "")
         _route_msg(ctx, "info", f"Laudo gerado via {result.get('source') or 'desconhecido'}.")
-        renderer.assistant(markdown)
+        if ctx.output_router:
+            ctx.output_router.assistant(markdown)
+        else:
+            renderer.assistant(markdown)
     except (ClientError, ValueError) as exc:
         _route_msg(ctx, "error", str(exc))
     return True
@@ -469,7 +506,10 @@ def _measurement_diagnostic(ctx: CommandContext, args: str) -> bool:
         approved = "sim" if diagnostic.get("approved") else "nao"
         _route_msg(ctx, "info", f"Aprovado: {approved}")
         _route_msg(ctx, "info", f"Resumo: {summary}")
-        renderer.measurement_detail(result.get("session") or ctx.measurements.get_session(session_id))
+        if ctx.output_router:
+            ctx.output_router.measurement_detail(result.get("session") or ctx.measurements.get_session(session_id))
+        else:
+            renderer.measurement_detail(result.get("session") or ctx.measurements.get_session(session_id))
     except (ClientError, ValueError) as exc:
         _route_msg(ctx, "error", str(exc))
     return True
@@ -496,7 +536,10 @@ def _capture(ctx: CommandContext, args: str) -> bool:
         _route_msg(ctx, "error", str(exc))
         return True
     _route_msg(ctx, "success", f"Sessao de medicao criada: {session_id}")
-    renderer.measurement_detail(session)
+    if ctx.output_router:
+        ctx.output_router.measurement_detail(session)
+    else:
+        renderer.measurement_detail(session)
     if _is_truthy(header.get("sem_serial")):
         ctx.measurements.save_session(session_id)
         _route_msg(ctx, "info", "Sessao criada sem captura serial.")
@@ -505,7 +548,7 @@ def _capture(ctx: CommandContext, args: str) -> bool:
         capture_error = ""
         snapshots: list[dict[str, Any]] = []
         try:
-            snapshots = _capture_serial_snapshots(header)
+            snapshots = _capture_serial_snapshots(header, ctx=ctx)
             if not snapshots:
                 _route_msg(ctx, "warning", "Nenhum TMA_DATA selecionado foi capturado.")
         except (ClientError, OSError, ValueError) as exc:
@@ -531,7 +574,7 @@ def _capture(ctx: CommandContext, args: str) -> bool:
             _route_msg(ctx, "warning", "Sessao salva sem snapshots validos.")
             return True
         result = ctx.measurements.add_snapshots(session_id, snapshots)
-        renderer.success(
+        _route_msg(ctx, "success",
             f"Snapshots salvos: aceitos={result.get('accepted', 0)} "
             f"rejeitados={result.get('rejected', 0)}"
         )
@@ -540,7 +583,10 @@ def _capture(ctx: CommandContext, args: str) -> bool:
             _route_msg(ctx, "warning", f"Snapshots rejeitados na validacao: {len(rejected_items)}")
         saved = ctx.measurements.save_session(session_id)
         _try_sync_saved_session(ctx, session_id)
-        renderer.measurement_detail(saved)
+        if ctx.output_router:
+            ctx.output_router.measurement_detail(saved)
+        else:
+            renderer.measurement_detail(saved)
         return True
     return True
 
@@ -632,7 +678,7 @@ def _prompt_measurement_header(ctx: CommandContext | None = None) -> dict[str, A
         header.update(serial)
         header["verticais"] = _prompt_verticals(current_verticals, ctx=ctx)
         header["sem_serial"] = _prompt_bool("Criar sessao sem capturar agora?", current_sem_serial, ctx=ctx)
-        renderer.info(
+        _route_msg(ctx, "info",
             "Resumo: "
             f"{header.get('fabricante') or '-'} {header.get('modelo') or '-'} "
             f"serie={header.get('numero_serie') or '-'} "
@@ -713,19 +759,19 @@ def _prompt_serial_header(previous: dict[str, Any] | None = None, *, ctx = None)
     }
 
 
-def _capture_serial_snapshots(header: dict[str, Any]) -> list[dict[str, Any]]:
+def _capture_serial_snapshots(header: dict[str, Any], *, ctx = None) -> list[dict[str, Any]]:
     selected = normalize_verticals(header.get("verticais") or DEFAULT_VERTICALS)
     counts: dict[str, int] = {vertical: 0 for vertical in sorted(selected)}
 
     def on_snapshot(snapshot: dict[str, Any]) -> None:
         snapshot_type = normalize_snapshot_type(snapshot.get("type"))
         counts[snapshot_type] = counts.get(snapshot_type, 0) + 1
-        renderer.info(
+        _route_msg(ctx, "info",
             "capturado "
             + " ".join(f"{key}={value}" for key, value in sorted(counts.items()))
         )
 
-    renderer.info(
+    _route_msg(ctx, "info",
         "Capturando TMA_DATA: "
         f"porta={header.get('porta_serial')} baudrate={header.get('baudrate')} "
         f"duracao={header.get('duracao_seg')}s verticais={','.join(sorted(selected))}"
@@ -844,7 +890,7 @@ def _new_session(ctx: CommandContext, args: str) -> bool:
 
 
 def _memory(ctx: CommandContext, args: str) -> bool:
-    renderer.info(
+    _route_msg(ctx, "info",
         "Sessao atual: "
         f"{ctx.session.session_id} mensagens={len(ctx.session.history)} "
         f"resumo={'sim' if bool(ctx.session.summary) else 'nao'}"
@@ -864,7 +910,10 @@ def _summary_chat(ctx: CommandContext, args: str) -> bool:
     ctx.session.set_summary(summary)
     ctx.logger.log("summary_updated", session_id=ctx.session.session_id, automatic=False)
     _route_msg(ctx, "success", f"Resumo atualizado para a sessao {ctx.session.session_id}.")
-    renderer.assistant(summary)
+    if ctx.output_router:
+        ctx.output_router.assistant(summary)
+    else:
+        renderer.assistant(summary)
     return True
 
 
@@ -887,7 +936,7 @@ def _load_chat_session(ctx: CommandContext, args: str) -> bool:
         return True
     _route_msg(ctx, "success", f"Sessao carregada: {ctx.session.session_id}")
     ctx.logger.log("chat_session_loaded", session_id=ctx.session.session_id)
-    renderer.info(
+    _route_msg(ctx, "info",
         f"Mensagens={len(ctx.session.history)} resumo={'sim' if bool(ctx.session.summary) else 'nao'}"
     )
     return True
@@ -898,7 +947,10 @@ def _list_chat_sessions(ctx: CommandContext, args: str) -> bool:
     if not sessions:
         _route_msg(ctx, "info", "Nenhuma sessao de chat persistida.")
         return True
-    renderer.chat_sessions_table(sessions)
+    if ctx.output_router:
+        ctx.output_router.chat_sessions_table(sessions)
+    else:
+        renderer.chat_sessions_table(sessions)
     return True
 
 
@@ -918,7 +970,7 @@ def _delete_chat_session(ctx: CommandContext, args: str) -> bool:
 
     # Proteção: não permite deletar a sessão ativa
     if resolved == ctx.session.session_id:
-        renderer.error(
+        _route_msg(ctx, "error",
             "Nao e possivel deletar a sessao ativa. "
             "Crie uma nova sessao com /novo antes de deletar esta."
         )
@@ -1155,8 +1207,8 @@ def _prompt_measurement_session_id(ctx: CommandContext, action: str) -> str:
     session = ctx.measurements.latest_session()
     default = str(session.get("id") or "") if session else ""
     if default:
-        _route_msg(ctx, "info", f"Sessao mais recente disponivel para /{action}: {default}")
-    return _prompt("ID da medicao", default)
+        return default
+    return _prompt("ID da medicao", "", ctx=ctx)
 
 
 def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
@@ -1165,7 +1217,7 @@ def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
     except Exception as exc:
         _route_msg(ctx, "warning", f"Sessao salva localmente, mas sync remoto falhou: {exc}")
         return
-    renderer.success(
+    _route_msg(ctx, "success",
         "Sessao sincronizada com o backend de medicoes: "
         f"remote_id={synced.get('remote_id') or '-'}"
     )
@@ -1181,7 +1233,7 @@ def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
         ) as tmp:
             tmp.write(markdown)
             tmp_path = tmp.name
-        result = ctx.knowledge.index(Path(tmp_path))
+        result = ctx.knowledge.index(Path(tmp_path), metadata=metadata)
         # Não deleta o tmp — o runtime precisa ler o arquivo (source_uri)
         job_id = str(result.get("job_id") or "")
         if job_id:

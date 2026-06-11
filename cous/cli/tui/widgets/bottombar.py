@@ -19,7 +19,7 @@ class BottomBar(Static):
         background: #242528;
         border-top: solid #2E2F33;
         padding: 0 1;
-        color: #666666;
+        color: #888888;
     }
     """
 
