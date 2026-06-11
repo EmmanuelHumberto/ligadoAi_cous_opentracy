@@ -278,13 +278,13 @@ def _summarize_vibration(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
         "window_span_us_avg": _avg(snapshots, "window_span_us"),
     }
     # Orientação (opcional)
-    if any(s.get("data", {}).get("roll_cdeg") is not None for s in snapshots):
+    if any(s.get("roll_cdeg") is not None for s in snapshots):
         result["roll_cdeg_avg"] = _avg(snapshots, "roll_cdeg")
         result["pitch_cdeg_avg"] = _avg(snapshots, "pitch_cdeg")
     # Acelerômetro por eixo (opcional)
     for axis in ("x", "y", "z"):
         rms_key = f"rms_{axis}_mg"
-        if any(s.get("data", {}).get(rms_key) is not None for s in snapshots):
+        if any(s.get(rms_key) is not None for s in snapshots):
             result[f"rms_{axis}_mg_avg"] = _avg(snapshots, rms_key)
     return result
 
