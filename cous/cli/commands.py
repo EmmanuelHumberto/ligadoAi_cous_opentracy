@@ -110,7 +110,7 @@ def build_router() -> CommandRouter:
     router.register("laudo", _measurement_report, "Gera laudo de uma medicao", aliases=["ld"])
     router.register("capturar", _capture, "Cria sessao de medicao/coleta", aliases=["cp"])
     router.register("sincronizar", _sync_measurements, "Sincroniza medicoes com o runtime", aliases=["sync"])
-    router.register("deletar_medicao", _delete_measurement, "Remove sessao de medicao (local + remoto)", aliases=["dm"])
+    router.register("deletar_medicao", _delete_measurement, "Remove sessoes de medicao (local + remoto)", aliases=["dm"])
     router.register("novo", _new_session, "Cria nova sessao de chat", aliases=["n"])
     router.register("memoria", _memory, "Mostra memoria local")
     router.register("resumo", _summary_chat, "Resume a sessao de chat atual")
@@ -443,26 +443,50 @@ def _looks_like_full_uuid(value: str) -> bool:
 
 
 def _delete_measurement(ctx: CommandContext, args: str) -> bool:
-    """Remove uma sessao de medicao do armazenamento local e remoto."""
-    session_id = args.strip()
-    if not session_id:
-        _route_msg(ctx, "error", "Uso: /deletar_medicao <session_id>")
+    """Remove sessoes de medicao do armazenamento local e remoto.
+
+    Aceita multiplos IDs separados por virgula ou espaco:
+      /deletar_medicao id1, id2, id3
+      /deletar_medicao id1 id2 id3
+    """
+    raw = args.strip()
+    if not raw:
+        _route_msg(ctx, "error", "Uso: /deletar_medicao <id1> [id2 ...]")
         return True
-    try:
-        # Verifica se a sessao existe localmente
-        ctx.measurements.get_session(session_id)
-    except ValueError:
-        _route_msg(ctx, "error", f"Sessao nao encontrada: {session_id}")
+    # Split por vírgula, depois por espaço em cada elemento
+    ids: list[str] = []
+    for part in raw.split(","):
+        for sub in part.strip().split():
+            if sub:
+                ids.append(sub)
+    if not ids:
+        _route_msg(ctx, "error", "Uso: /deletar_medicao <id1> [id2 ...]")
         return True
-    # Remove do store local
-    ctx.measurements.delete_session(session_id)
-    # Tenta remover do runtime remoto (ignora falha se offline)
-    try:
-        ctx.measurements.delete_remote_session(session_id)
-        _route_msg(ctx, "success", f"Sessao removida (local + remoto): {session_id}")
-    except Exception:
-        # Runtime offline ou sessao ja nao existe la
-        _route_msg(ctx, "success", f"Sessao removida (local): {session_id}")
+
+    deleted_local = 0
+    deleted_remote = 0
+    not_found = 0
+
+    for session_id in ids:
+        try:
+            ctx.measurements.get_session(session_id)
+        except ValueError:
+            _route_msg(ctx, "warning", f"Nao encontrada: {session_id}")
+            not_found += 1
+            continue
+        ctx.measurements.delete_session(session_id)
+        deleted_local += 1
+        try:
+            ctx.measurements.delete_remote_session(session_id)
+            deleted_remote += 1
+        except Exception:
+            pass  # runtime offline — remocao local ja foi feita
+
+    if deleted_local > 0:
+        remote_info = f" ({deleted_remote} remoto)" if deleted_remote > 0 else ""
+        _route_msg(ctx, "success", f"{deleted_local} sessoes removidas{remote_info}")
+    if not_found > 0:
+        _route_msg(ctx, "warning", f"{not_found} sessoes nao encontradas")
     return True
 
 
