@@ -268,10 +268,23 @@ def _summarize_vibration(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {
         "count": len(snapshots),
         "rms_norm_mg_avg": _avg(snapshots, "rms_norm_mg"),
-        "dominant_frequency_hz_avg": _avg(snapshots, "dominant_frequency_hz"),
         "peak_norm_mg_max": _peak(snapshots, "peak_norm_mg"),
+        "p2p_norm_mg_max": _peak(snapshots, "p2p_norm_mg"),
+        "dominant_frequency_hz_avg": _avg(snapshots, "dominant_frequency_hz"),
+        "rpm_inferred_avg": _avg(snapshots, "rpm_inferred"),
+        "crest_factor_permille_avg": _avg(snapshots, "crest_factor_permille"),
+        "quality_permille_avg": _avg(snapshots, "quality_permille"),
+        "sample_count": _int_avg(snapshots, "sample_count"),
+        "window_span_us_avg": _avg(snapshots, "window_span_us"),
     }
-    # Campos por eixo (opcionais — firmware pode ou não enviar)
+    # Giroscópio (opcional)
+    if any(s.get("data", {}).get("gyro_rms_norm_mdps") is not None for s in snapshots):
+        result["gyro_rms_norm_mdps_avg"] = _avg(snapshots, "gyro_rms_norm_mdps")
+    # Orientação (opcional)
+    if any(s.get("data", {}).get("roll_cdeg") is not None for s in snapshots):
+        result["roll_cdeg_avg"] = _avg(snapshots, "roll_cdeg")
+        result["pitch_cdeg_avg"] = _avg(snapshots, "pitch_cdeg")
+    # Acelerômetro por eixo (opcional)
     for axis in ("x", "y", "z"):
         rms_key = f"rms_{axis}_mg"
         peak_key = f"peak_{axis}_mg"
@@ -301,6 +314,13 @@ def _avg(snapshots: list[dict[str, Any]], key: str) -> float | None:
 def _peak(snapshots: list[dict[str, Any]], key: str) -> float | None:
     values = _numbers(snapshots, key)
     return max(values) if values else None
+
+
+def _int_avg(snapshots: list[dict[str, Any]], key: str) -> int | None:
+    values = _numbers(snapshots, key)
+    if not values:
+        return None
+    return int(mean(values))
 
 
 def _numbers(snapshots: list[dict[str, Any]], key: str) -> list[float]:

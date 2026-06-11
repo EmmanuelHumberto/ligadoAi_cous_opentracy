@@ -170,6 +170,15 @@ class OutputRouter:
             rows.append(("Vibração RMS", f"{vib['rms_norm_mg_avg']:.2f} mg"))
         if vib.get("peak_norm_mg_max") is not None:
             rows.append(("Vibração Pico", f"{vib['peak_norm_mg_max']:.0f} mg"))
+        if vib.get("p2p_norm_mg_max") is not None:
+            rows.append(("Vib. Pico-a-Pico", f"{vib['p2p_norm_mg_max']:.0f} mg"))
+        if vib.get("crest_factor_permille_avg") is not None:
+            rows.append(("Fator de Crista", f"{vib['crest_factor_permille_avg']:.0f} ‰"))
+        if vib.get("rpm_inferred_avg") is not None:
+            rows.append(("RPM (vib)", f"{vib['rpm_inferred_avg']:.0f}"))
+        # Giroscópio
+        if vib.get("gyro_rms_norm_mdps_avg") is not None:
+            rows.append(("Giro RMS", f"{vib['gyro_rms_norm_mdps_avg']:.0f} mdps"))
         # Vibração por eixo (opcional)
         for axis in ("x", "y", "z"):
             rms_key = f"rms_{axis}_mg_avg"
@@ -178,6 +187,11 @@ class OutputRouter:
                 rows.append((f"Vib. RMS {axis.upper()}", f"{vib[rms_key]:.2f} mg"))
             if vib.get(peak_key) is not None:
                 rows.append((f"Vib. Pico {axis.upper()}", f"{vib[peak_key]:.0f} mg"))
+        # Orientação
+        if vib.get("roll_cdeg_avg") is not None:
+            rows.append(("Roll", f"{vib['roll_cdeg_avg']:.1f}°"))
+        if vib.get("pitch_cdeg_avg") is not None:
+            rows.append(("Pitch", f"{vib['pitch_cdeg_avg']:.1f}°"))
         self._post(TableData(["Campo", "Valor"], [[c, v] for c, v in rows]))
 
     # ── Controle ────────────────────────────────────────────────────────
