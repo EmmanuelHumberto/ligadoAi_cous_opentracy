@@ -97,18 +97,17 @@ def _ensure_api_channel(config: Config) -> ApiBootstrapResult:
 
             connect_response = client.post(f"{runtime_url}/agents/{agent_id}/channels/api/connect")
             if connect_response.status_code == 409:
-                if api_token_file.is_file():
-                    token = ""
-                    api_connected = True
-                else:
-                    rotate_response = client.post(
-                        f"{runtime_url}/agents/{agent_id}/channels/api/rotate"
-                    )
-                    rotate_response.raise_for_status()
-                    payload = rotate_response.json()
-                    token = str(payload.get("token") or "")
-                    api_connected = True
-                    public_url = str(payload.get("public_url") or public_url)
+                # Canal já conectado — sempre rotaciona para garantir token fresco.
+                # Preservar token existente não é seguro: o runtime pode tê-lo
+                # invalidado entre execuções e não há endpoint de validação.
+                rotate_response = client.post(
+                    f"{runtime_url}/agents/{agent_id}/channels/api/rotate"
+                )
+                rotate_response.raise_for_status()
+                payload = rotate_response.json()
+                token = str(payload.get("token") or "")
+                api_connected = True
+                public_url = str(payload.get("public_url") or public_url)
             else:
                 connect_response.raise_for_status()
                 payload = connect_response.json()

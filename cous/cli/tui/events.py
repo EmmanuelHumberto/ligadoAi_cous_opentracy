@@ -10,15 +10,6 @@ from __future__ import annotations
 from textual.message import Message
 
 
-class LogLineData(Message):
-    """Linha de log para o LogPanel."""
-
-    def __init__(self, level: str, text: str) -> None:
-        self.level = level  # "error", "info", "success", "warning"
-        self.text = text
-        super().__init__()
-
-
 class StatusTableData(Message):
     """Tabela de status para o StatusPanel."""
 

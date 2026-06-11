@@ -78,8 +78,11 @@ def _check_permissions(path: Path) -> None:
 
 
 def _is_permissions_600(path: Path) -> bool:
+    """Verifica se o arquivo tem permissão 0600 (rw-------)."""
     try:
-        return path.stat().st_mode & 0o777 == stat.S_IRUSR | stat.S_IWUSR
+        # st_mode & 0o777 extrai os 9 bits de permissão;
+        # S_IRUSR | S_IWUSR = 0o600 (leitura + escrita do dono)
+        return (path.stat().st_mode & 0o777) == (stat.S_IRUSR | stat.S_IWUSR)
     except OSError:
         return False
 

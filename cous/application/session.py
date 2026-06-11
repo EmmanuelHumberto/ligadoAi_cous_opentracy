@@ -103,6 +103,7 @@ class ConversationStore:
                 "updated_at": session.updated_at,
             },
         )
+        self._update_index(session_id, session.updated_at)
         return session
 
     def load_session(self, session_id: str, *, event_logger=None) -> ChatSession:
@@ -220,11 +221,15 @@ class ConversationStore:
                 "preview": preview,
             }
             sessions.append(entry)
-            self._update_index(session.session_id, entry["updated_at"], message_count=len(session.history))
+            self._update_index(session.session_id, entry["updated_at"],
+                                message_count=len(session.history),
+                                summary_present=bool(session.summary),
+                                preview=preview)
         sessions.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
         return sessions
 
-    def _update_index(self, session_id: str, updated_at: str, message_count: int = 0) -> None:
+    def _update_index(self, session_id: str, updated_at: str, message_count: int = 0,
+                       summary_present: bool = False, preview: str = "") -> None:
         """Adiciona/atualiza entrada no índice após cada evento."""
         index_path = self._conversations_dir / "_index.jsonl"
         try:
@@ -233,10 +238,10 @@ class ConversationStore:
                     json.dumps({
                         "id": session_id,
                         "messages": message_count,
-                        "summary_present": False,
+                        "summary_present": summary_present,
                         "created_at": updated_at,
                         "updated_at": updated_at,
-                        "preview": "",
+                        "preview": preview,
                     }, ensure_ascii=True)
                     + "\n"
                 )
@@ -273,6 +278,18 @@ class ConversationStore:
                 "timestamp": timestamp,
             },
         )
+        # Atualiza índice com contagem real de mensagens
+        try:
+            session = self.load_session(session_id)
+            preview = content[:60]
+            self._update_index(
+                session_id, timestamp,
+                message_count=len(session.history),
+                summary_present=bool(session.summary),
+                preview=preview,
+            )
+        except ValueError:
+            pass  # sessão pode não existir ainda no rebuild
 
     def append_summary(
         self,
@@ -291,6 +308,17 @@ class ConversationStore:
                 "timestamp": timestamp,
             },
         )
+        # Atualiza índice com flag de sumarização
+        try:
+            session = self.load_session(session_id)
+            self._update_index(
+                session_id, timestamp,
+                message_count=len(session.history),
+                summary_present=True,
+                preview=summary[:60],
+            )
+        except ValueError:
+            pass
 
     def delete_session(self, session_id: str) -> bool:
         """

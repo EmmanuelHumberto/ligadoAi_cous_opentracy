@@ -31,7 +31,7 @@ def test_collect_tma_snapshots_filters_selected_verticals():
 
 
 def test_normalize_verticals_accepts_snapshot_aliases():
-    assert normalize_verticals(["hall_snapshot", "course_snapshot"]) == {"hall", "course"}
+    assert normalize_verticals(["hall_snapshot", "vibration_snapshot"]) == {"hall", "vibration"}
 
 
 def test_iter_lines_does_not_stop_on_empty_serial_read(monkeypatch):

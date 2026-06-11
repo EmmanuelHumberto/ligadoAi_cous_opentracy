@@ -1221,6 +1221,7 @@ def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
         f"remote_id={synced.get('remote_id') or '-'}"
     )
     # Indexar sumário da medição no knowledge base (Fase B)
+    tmp_path: str | None = None
     try:
         from cous.measurements.analysis import index_measurement_session
         from pathlib import Path
@@ -1233,12 +1234,19 @@ def _try_sync_saved_session(ctx: CommandContext, session_id: str) -> None:
             tmp.write(markdown)
             tmp_path = tmp.name
         result = ctx.knowledge.index(Path(tmp_path), metadata=metadata)
-        # Não deleta o tmp — o runtime precisa ler o arquivo (source_uri)
+        # O runtime lê o arquivo durante o job (source_uri).
         job_id = str(result.get("job_id") or "")
         if job_id:
             _poll_job(ctx, job_id)
     except Exception as exc:
         _route_msg(ctx, "warning", f"Indexacao automatica da medicao falhou: {exc}")
+    finally:
+        # Após o job terminar, o runtime já leu o arquivo — pode deletar
+        if tmp_path is not None:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def build_chat_summary(ctx: CommandContext) -> str:
