@@ -110,6 +110,7 @@ def build_router() -> CommandRouter:
     router.register("laudo", _measurement_report, "Gera laudo de uma medicao", aliases=["ld"])
     router.register("capturar", _capture, "Cria sessao de medicao/coleta", aliases=["cp"])
     router.register("sincronizar", _sync_measurements, "Sincroniza medicoes com o runtime", aliases=["sync"])
+    router.register("deletar_medicao", _delete_measurement, "Remove sessao de medicao (local + remoto)", aliases=["dm"])
     router.register("novo", _new_session, "Cria nova sessao de chat", aliases=["n"])
     router.register("memoria", _memory, "Mostra memoria local")
     router.register("resumo", _summary_chat, "Resume a sessao de chat atual")
@@ -131,7 +132,7 @@ def _help(ctx: CommandContext, args: str) -> bool:
         ("Feedback",  "#FFB86C", ["/confirmar", "/corrigir", "/solucao"]),
         ("Knowledge", "#639922", ["/validar", "/indexar", "/indexados", "/buscar", "/remover"]),
         ("Medições",  "#56B6C2", ["/capturar", "/medicoes", "/medicao",
-                                   "/sincronizar", "/diagnostico", "/laudo"]),
+                                   "/sincronizar", "/deletar_medicao", "/diagnostico", "/laudo"]),
     ]
     router = build_router()
     cmd_desc = dict(router.descriptions())
@@ -439,6 +440,30 @@ def _resolve_document_id(ctx: CommandContext, prefix: str) -> list[str] | None:
 def _looks_like_full_uuid(value: str) -> bool:
     import re
     return bool(re.match(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$', value))
+
+
+def _delete_measurement(ctx: CommandContext, args: str) -> bool:
+    """Remove uma sessao de medicao do armazenamento local e remoto."""
+    session_id = args.strip()
+    if not session_id:
+        _route_msg(ctx, "error", "Uso: /deletar_medicao <session_id>")
+        return True
+    try:
+        # Verifica se a sessao existe localmente
+        ctx.measurements.get_session(session_id)
+    except ValueError:
+        _route_msg(ctx, "error", f"Sessao nao encontrada: {session_id}")
+        return True
+    # Remove do store local
+    ctx.measurements.delete_session(session_id)
+    # Tenta remover do runtime remoto (ignora falha se offline)
+    try:
+        ctx.measurements.delete_remote_session(session_id)
+        _route_msg(ctx, "success", f"Sessao removida (local + remoto): {session_id}")
+    except Exception:
+        # Runtime offline ou sessao ja nao existe la
+        _route_msg(ctx, "success", f"Sessao removida (local): {session_id}")
+    return True
 
 
 def _measurements(ctx: CommandContext, args: str) -> bool:

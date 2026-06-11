@@ -102,6 +102,9 @@ class MeasurementsClient:
     def delete_session(self, session_id: str) -> bool:
         return self._store.delete_session(session_id)
 
+    def delete_remote_session(self, session_id: str) -> None:
+        self._http.delete(f"{self._runtime_url}/measurements/sessions/{session_id}")
+
     def chat_context(self, query: str) -> str:
         return build_chat_context(query, self._store.full_sessions())
 
