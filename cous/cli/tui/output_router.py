@@ -176,9 +176,6 @@ class OutputRouter:
             rows.append(("Fator de Crista", f"{vib['crest_factor_permille_avg']:.0f} ‰"))
         if vib.get("rpm_inferred_avg") is not None:
             rows.append(("RPM (vib)", f"{vib['rpm_inferred_avg']:.0f}"))
-        # Giroscópio
-        if vib.get("gyro_rms_norm_mdps_avg") is not None:
-            rows.append(("Giro RMS", f"{vib['gyro_rms_norm_mdps_avg']:.0f} mdps"))
         # Vibração por eixo (opcional)
         for axis in ("x", "y", "z"):
             rms_key = f"rms_{axis}_mg_avg"

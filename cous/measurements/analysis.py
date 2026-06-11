@@ -277,9 +277,6 @@ def _summarize_vibration(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
         "sample_count": _int_avg(snapshots, "sample_count"),
         "window_span_us_avg": _avg(snapshots, "window_span_us"),
     }
-    # Giroscópio (opcional)
-    if any(s.get("data", {}).get("gyro_rms_norm_mdps") is not None for s in snapshots):
-        result["gyro_rms_norm_mdps_avg"] = _avg(snapshots, "gyro_rms_norm_mdps")
     # Orientação (opcional)
     if any(s.get("data", {}).get("roll_cdeg") is not None for s in snapshots):
         result["roll_cdeg_avg"] = _avg(snapshots, "roll_cdeg")
