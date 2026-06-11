@@ -808,6 +808,14 @@ def _prompt_serial_header(previous: dict[str, Any] | None = None, *, ctx = None)
     }
 
 
+VERTICAL_COLORS: dict[str, str] = {
+    "hall": "cyan",
+    "power": "blue",
+    "course": "orange1",
+    "vibration": "magenta",
+}
+
+
 def _capture_serial_snapshots(header: dict[str, Any], *, ctx = None) -> list[dict[str, Any]]:
     selected = normalize_verticals(header.get("verticais") or DEFAULT_VERTICALS)
     counts: dict[str, int] = {vertical: 0 for vertical in sorted(selected)}
@@ -815,10 +823,11 @@ def _capture_serial_snapshots(header: dict[str, Any], *, ctx = None) -> list[dic
     def on_snapshot(snapshot: dict[str, Any]) -> None:
         snapshot_type = normalize_snapshot_type(snapshot.get("type"))
         counts[snapshot_type] = counts.get(snapshot_type, 0) + 1
-        _route_msg(ctx, "info",
-            "capturado "
-            + " ".join(f"{key}={value}" for key, value in sorted(counts.items()))
-        )
+        parts = []
+        for key in sorted(counts):
+            color = VERTICAL_COLORS.get(key, "white")
+            parts.append(f"[{color}]{key}={counts[key]}[/]")
+        _route_msg(ctx, "info", " ".join(parts))
 
     _route_msg(ctx, "info",
         "Capturando TMA_DATA: "
