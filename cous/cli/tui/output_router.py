@@ -179,11 +179,8 @@ class OutputRouter:
         # Vibração por eixo (opcional)
         for axis in ("x", "y", "z"):
             rms_key = f"rms_{axis}_mg_avg"
-            peak_key = f"peak_{axis}_mg_max"
             if vib.get(rms_key) is not None:
                 rows.append((f"Vib. RMS {axis.upper()}", f"{vib[rms_key]:.2f} mg"))
-            if vib.get(peak_key) is not None:
-                rows.append((f"Vib. Pico {axis.upper()}", f"{vib[peak_key]:.0f} mg"))
         # Orientação
         if vib.get("roll_cdeg_avg") is not None:
             rows.append(("Roll", f"{vib['roll_cdeg_avg']:.1f}°"))

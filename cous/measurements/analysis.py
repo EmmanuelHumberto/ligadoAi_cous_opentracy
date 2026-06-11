@@ -284,10 +284,8 @@ def _summarize_vibration(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
     # Acelerômetro por eixo (opcional)
     for axis in ("x", "y", "z"):
         rms_key = f"rms_{axis}_mg"
-        peak_key = f"peak_{axis}_mg"
         if any(s.get("data", {}).get(rms_key) is not None for s in snapshots):
             result[f"rms_{axis}_mg_avg"] = _avg(snapshots, rms_key)
-            result[f"peak_{axis}_mg_max"] = _peak(snapshots, peak_key)
     return result
 
 
