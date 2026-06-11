@@ -322,6 +322,9 @@ class CousApp(App):
     def handle_prompt_request(self, event: PromptRequest) -> None:
         """Configura o InputBar para modo prompt."""
         self._active_prompt = event
+        # Mostra no info-panel qual campo esta sendo preenchido
+        if self.output_router:
+            self.output_router.info(f"Preenchendo: {event.question}")
         try:
             inp = self.query_one("#chat-input")
             placeholder = event.question

@@ -834,14 +834,27 @@ def _capture_serial_snapshots(header: dict[str, Any], *, ctx = None) -> list[dic
     )
 
 
-def _prompt(message: str, default: str = "", options: list[str] | None = None, *, ctx: CommandContext | None = None) -> str:
-    """Prompt interativo. No TUI, usa threading.Event para não travar a UI."""
+def _prompt(message: str, default: str = "", options: list[str] | None = None, *,
+            ctx: CommandContext | None = None, keep_history: bool = False) -> str:
+    """Prompt interativo. No TUI, usa threading.Event para não travar a UI.
+
+    keep_history=False: limpa readline history antes do prompt (campos textuais).
+    keep_history=True:  mantém histórico (útil para s/n).
+    """
     if ctx is not None and ctx.output_router:
+        ctx.output_router.info(f"Preenchendo: {message}")
         return _tui_prompt(ctx, message, default, options)
-    # Modo legado: input() direto
+    # Modo legado: limpa histórico e mostra campo atual
+    if not keep_history:
+        try:
+            import readline
+            readline.clear_history()
+        except (ImportError, OSError):
+            pass
     suffix = f" [{default}]" if default else ""
     if options:
         suffix += " (" + "/".join(options) + ")"
+    renderer.info(f">> {message}")
     renderer.console.print(f"{message}{suffix}: ", end="", markup=False)
     value = input().strip()
     value = value or default
@@ -875,7 +888,7 @@ def _prompt_int(message: str, default: int, *, ctx = None) -> int:
 
 
 def _prompt_bool(message: str, default: bool, *, ctx = None) -> bool:
-    value = _prompt(message, "sim" if default else "nao", ctx=ctx).lower()
+    value = _prompt(message, "sim" if default else "nao", ctx=ctx, keep_history=True).lower()
     if value in {"sim", "s", "yes", "y", "true", "1"}:
         return True
     if value in {"nao", "n", "no", "false", "0"}:
