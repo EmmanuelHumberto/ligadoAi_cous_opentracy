@@ -265,13 +265,20 @@ def _summarize_power(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
 def _summarize_vibration(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
     if not snapshots:
         return {}
-    peak_values = _numbers(snapshots, "peak_norm_mg")
-    return {
+    result: dict[str, Any] = {
         "count": len(snapshots),
         "rms_norm_mg_avg": _avg(snapshots, "rms_norm_mg"),
         "dominant_frequency_hz_avg": _avg(snapshots, "dominant_frequency_hz"),
-        "peak_norm_mg_max": max(peak_values) if peak_values else None,
+        "peak_norm_mg_max": _peak(snapshots, "peak_norm_mg"),
     }
+    # Campos por eixo (opcionais — firmware pode ou não enviar)
+    for axis in ("x", "y", "z"):
+        rms_key = f"rms_{axis}_mg"
+        peak_key = f"peak_{axis}_mg"
+        if any(s.get("data", {}).get(rms_key) is not None for s in snapshots):
+            result[f"rms_{axis}_mg_avg"] = _avg(snapshots, rms_key)
+            result[f"peak_{axis}_mg_max"] = _peak(snapshots, peak_key)
+    return result
 
 
 def _summarize_course(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
@@ -289,6 +296,11 @@ def _avg(snapshots: list[dict[str, Any]], key: str) -> float | None:
     if not values:
         return None
     return mean(values)
+
+
+def _peak(snapshots: list[dict[str, Any]], key: str) -> float | None:
+    values = _numbers(snapshots, key)
+    return max(values) if values else None
 
 
 def _numbers(snapshots: list[dict[str, Any]], key: str) -> list[float]:

@@ -170,6 +170,14 @@ class OutputRouter:
             rows.append(("Vibração RMS", f"{vib['rms_norm_mg_avg']:.2f} mg"))
         if vib.get("peak_norm_mg_max") is not None:
             rows.append(("Vibração Pico", f"{vib['peak_norm_mg_max']:.0f} mg"))
+        # Vibração por eixo (opcional)
+        for axis in ("x", "y", "z"):
+            rms_key = f"rms_{axis}_mg_avg"
+            peak_key = f"peak_{axis}_mg_max"
+            if vib.get(rms_key) is not None:
+                rows.append((f"Vib. RMS {axis.upper()}", f"{vib[rms_key]:.2f} mg"))
+            if vib.get(peak_key) is not None:
+                rows.append((f"Vib. Pico {axis.upper()}", f"{vib[peak_key]:.0f} mg"))
         self._post(TableData(["Campo", "Valor"], [[c, v] for c, v in rows]))
 
     # ── Controle ────────────────────────────────────────────────────────
