@@ -189,3 +189,27 @@ class OutputRouter:
         """Posta PromptRequest e espera resposta (chamado via _tui_prompt)."""
         from cous.cli.tui.events import PromptRequest
         self._post(PromptRequest(question, default, event, result))
+
+
+class NullOutputRouter:
+    """Output router que descarta todas as saídas (modo legado/headless).
+
+    Substitui o fallback condicional if ctx.output_router em _route_msg(),
+    eliminando a necessidade de verificar None em cada call-site.
+    """
+
+    def error(self, text: str) -> None: pass
+    def info(self, text: str) -> None: pass
+    def success(self, text: str) -> None: pass
+    def warning(self, text: str) -> None: pass
+    def assistant(self, text: str) -> None: pass
+    def welcome(self, agent_id: str) -> None: pass
+    def status_table(self, rows): pass
+    def search_results(self, results, query: str = "") -> None: pass
+    def documents_table(self, docs): pass
+    def measurements_table(self, sessions): pass
+    def chat_sessions_table(self, sessions): pass
+    def measurement_detail(self, session): pass
+    def clear(self) -> None: pass
+    def feedback_registered(self, fb_type: str, trace_id: str) -> None: pass
+    def job_progress(self, job_id: str, status: str, stage: str) -> None: pass

@@ -5,6 +5,7 @@ from __future__ import annotations
 from cous.application.session import ConversationStore
 from cous.cli import renderer
 from cous.cli.commands import CommandContext, build_chat_summary, build_router
+from cous.cli.tui.output_router import NullOutputRouter
 from cous.clients.base import ClientError
 from cous.clients.knowledge import KnowledgeClient
 from cous.clients.measurements import MeasurementsClient
@@ -118,6 +119,7 @@ def _run_legacy(
         feedback_store=feedback_store,
         system_prompt_cache=system_prompt_cache,
         trace_emitter=trace_emitter,
+        output_router=NullOutputRouter(),
     )
     renderer.welcome(config.opentracy.agent_id)
     renderer.info(f"Sessao de chat atual: {session.session_id}")
