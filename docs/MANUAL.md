@@ -78,7 +78,7 @@ npm run start
 # Terminal 4 — Cous (bootstrap + iniciar)
 cd /home/hiatus/Projetos/ligadotattoo/ligadoAi_cous_opentracy
 uv run cous --bootstrap   # só na primeira vez
-uv run cous               # uso normal
+uv run cous                  # uso normal
 ```
 
 ### Dentro do Cous
@@ -377,7 +377,7 @@ Mostra uma tabela com 4 verticais:
 | `/memoria`   | —     | Mostra sessão atual, nº de mensagens e resumo      |
 | `/resumo`    | —     | Pede ao agente resumo técnico da conversa atual    |
 
-#### Fluxo de Sessão de Chat
+#### Fluxo de Sessão de Chat    
 
 1. Cada sessão recebe um ID: `chat_AAAAMMDD_HHMMSS_xxxxxx`
 2. O arquivo JSONL contém eventos:

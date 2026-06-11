@@ -220,21 +220,19 @@ class ConversationStore:
                 "preview": preview,
             }
             sessions.append(entry)
-            self._update_index(session.session_id, entry["updated_at"])
+            self._update_index(session.session_id, entry["updated_at"], message_count=len(session.history))
         sessions.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
         return sessions
 
-    def _update_index(self, session_id: str, updated_at: str) -> None:
+    def _update_index(self, session_id: str, updated_at: str, message_count: int = 0) -> None:
         """Adiciona/atualiza entrada no índice após cada evento."""
-        preview = ""
-        # Tenta obter preview da sessão ativa se disponível
         index_path = self._conversations_dir / "_index.jsonl"
         try:
             with index_path.open("a", encoding="utf-8") as handle:
                 handle.write(
                     json.dumps({
                         "id": session_id,
-                        "messages": 0,
+                        "messages": message_count,
                         "summary_present": False,
                         "created_at": updated_at,
                         "updated_at": updated_at,

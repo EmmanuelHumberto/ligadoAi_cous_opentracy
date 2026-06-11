@@ -33,10 +33,10 @@ class StatusRow(Static):
         self._refresh_display()
 
     def _refresh_display(self) -> None:
-        dots = {"ok": "[#639922]●[/]", "warn": "[#EF9F27]●[/]",
-                "down": "[#E24B4A]●[/]", "unknown": "[#555]●[/]"}
-        dot = dots.get(self._state, dots["unknown"])
-        self.update(f" {self._name:<14} {dot} {self._state}")
+        colors = {"ok": "#639922", "warn": "#EF9F27",
+                  "down": "#E24B4A", "unknown": "#555"}
+        color = colors.get(self._state, colors["unknown"])
+        self.update(f" [{color}]{self._name}[/]")
 
 
 class StatusPanel(Container):
@@ -47,8 +47,8 @@ class StatusPanel(Container):
 
     DEFAULT_CSS = """
     StatusPanel {
+        height: 4;
         padding: 0;
-        border-bottom: solid #2E2F33;
     }
     """
 

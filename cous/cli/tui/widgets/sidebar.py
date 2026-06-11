@@ -24,7 +24,7 @@ class Sidebar(Container):
         border-title-background: #1E1F22;
         border-title-style: bold;
         border-title-align: center;
-        padding: 0 1;
+        padding: 0;
     }
     #info-table {
         height: 1fr;
@@ -34,6 +34,7 @@ class Sidebar(Container):
         height: 1fr;
         scrollbar-size: 1 1;
         color: #B0B0B0;
+        padding: 0 1;
     }
     """
 
