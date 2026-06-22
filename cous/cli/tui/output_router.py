@@ -104,7 +104,7 @@ class OutputRouter:
     def documents_table(self, docs: list[dict]) -> None:
         rows = []
         for d in docs:
-            doc_id = str(d.get("id", ""))[:14]
+            doc_id = str(d.get("id", ""))
             dt = str(d.get("document_type") or "-")
             mfr = str(d.get("manufacturer") or "-")[:15]
             title = str(d.get("title") or "")[:40]

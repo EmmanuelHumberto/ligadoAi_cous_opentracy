@@ -68,10 +68,16 @@ class TestClassifyDocument:
         assert result["category"] == "academic"
 
     def test_generic_document_fallback(self):
-        text = "relatório de manutenção preventiva da máquina de tatuagem"
+        text = "relatório de manutenção preventiva de equipamento industrial"
         result = extract_metadata(text)
         assert result["document_type"] == "generic"
         assert result["category"] == "general"
+
+    def test_machine_manual_classification(self):
+        text = "máquina de tatuagem com frequência de perfuração ajustável e saliência da agulha regulável"
+        result = extract_metadata(text)
+        assert result["document_type"] == "machine_manual"
+        assert result["category"] == "tattoo_machine"
 
     def test_single_keyword_not_enough(self):
         """Apenas 1 palavra-chave não deve bastar para classificar (threshold=2)."""

@@ -66,7 +66,7 @@ def documents_table(documents: list[dict]) -> None:
     table.add_column("Status")
     for doc in documents:
         table.add_row(
-            str(doc.get("id", ""))[:8],
+            str(doc.get("id", "")),
             str(doc.get("title") or "-"),
             str(doc.get("manufacturer") or "-"),
             str(doc.get("model") or "-"),

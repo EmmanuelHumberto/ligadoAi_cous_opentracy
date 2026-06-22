@@ -63,8 +63,10 @@ O Cous é a face operacional do ecossistema LigadoAI/OpenTracy para técnicos de
 # O banco 'ligadoai' é usado tanto para knowledge quanto para medições.
 # Se estiver usando Docker:
 docker run -d --name ligadoai-pg \
-  -e POSTGRES_USER=ligadoai -e POSTGRES_PASSWORD=ligadoai \
-  -e POSTGRES_DB=ligadoai -p 5432:5432 \
+  -e POSTGRES_USER=ligadoai \
+  -e POSTGRES_PASSWORD=ligadoai \
+  -e POSTGRES_DB=ligadoai \
+  -p 5432:5432 \
   postgres:16
 
 # Terminal 2 — Runtime do OpenTracy (porta 8001)
@@ -73,13 +75,13 @@ uv run python -m runtime.server
 
 # Terminal 3 — Backend (porta 8002)
 cd /home/hiatus/Projetos/ligadotattoo/OpenTracy/backend
-npm run start
+npm run start   
 
 # Terminal 4 — Cous (bootstrap + iniciar)
 cd /home/hiatus/Projetos/ligadotattoo/ligadoAi_cous_opentracy
 uv run cous --bootstrap   # só na primeira vez
 uv run cous                  # uso normal
-```
+``` 
 
 ### Dentro do Cous
 

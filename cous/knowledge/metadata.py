@@ -13,6 +13,10 @@ Tipos suportados:
   service_order        — ordens de serviço (OS System)
   academic             — TCC, dissertação, tese, monografia (nacional)
   book                 — livros de engenharia (editora, ISBN, ficha catalográfica)
+  machine_manual       — manuais de máquinas de tatuagem (pen, rotativa, bobina)
+  power_supply         — fontes de alimentação, baterias externas (Musotoku, InkMachines)
+  battery              — baterias de máquinas de tatuagem (PowerBolt, Lightning)
+  cartridge            — cartuchos/agulhas descartáveis (Krieg, Bishop, Electric Ink)
   generic              — qualquer outro documento
 """
 
@@ -52,23 +56,56 @@ _KEYWORD_CLASSIFIER: list[tuple[list[str], str, str]] = [
     # Ordens de serviço
     (["cliente:", "cnpj / cpf:", "cel:", "endereço:",
       "ordem de serviço", "os system"], "service_order", "os"),
+    # Medições
+    (["## cabecalho - fabricante:", "## resumo tecnico"],
+     "measurement", "measurement"),
+    # Documentos acadêmicos (PT-BR) — antes de book e machine_manual
+    (["trabalho de conclusão de curso", "dissertação", "tese",
+      "monografia", "orientador", "universidade", "faculdade",
+      "programa de pós-graduação", "departamento acadêmico"],
+     "academic", "academic"),
     # Livros de engenharia (ISBN, editora, ficha catalográfica)
     (["copyright ©", "isbn", "ficha catalográfica",
       "editora", "edição", "impresso no brasil",
       "tradução autorizada", "todos os direitos reservados"],
      "book", "engineering_book"),
-    # Medições
-    (["## cabecalho - fabricante:", "## resumo tecnico"],
-     "measurement", "measurement"),
-    # Documentos acadêmicos (PT-BR)
-    (["trabalho de conclusão de curso", "dissertação", "tese",
-      "monografia", "orientador", "universidade", "faculdade",
-      "programa de pós-graduação", "departamento acadêmico"],
-     "academic", "academic"),
+    # Baterias de máquinas (PT/EN) — antes de power_supply e machine_manual
+    (["machine battery", "usb-c battery", "li-ion", "lipo",
+      "battery capacity", "mah", "rechargeable battery",
+      "powerbolt", "lightning battery", "bateria", "acumulador",
+      "battery cell", "removable battery"],
+     "battery", "battery"),
+    # Fontes de alimentação / baterias externas (PT/EN) — antes de machine_manual
+    (["power supply", "fonte de alimentação", "footswitch",
+      "voltage output", "power input", "powerpack",
+      "overcurrent", "memory preset", "nitro",
+      "battery pack", "charger bay", "power cord",
+      "output current", "short circuit"],
+     "power_supply", "power_supply"),
+    # Cartuchos / agulhas descartáveis (PT/EN) — antes de machine_manual
+    (["cartucho", "cartridge", "agulha descartável", "descartável",
+      "blister", "uso único", "single use", "óxido de etileno",
+      "biqueira", "needle cartridge", "estéril", "produto estéril",
+      "embalagem individual", "esterilizado por", "descartáveis",
+      "round liner", "round shader", "curved magnum", "bugpin",
+      "agulhas descartáveis", "configurações de agulha"],
+     "cartridge", "cartridge"),
+    # Manuais de máquinas de tatuagem (PT/EN)
+    (["saliência da agulha", "frequência de perfuração",
+      "máquina de tatuagem", "tattoo machine", "needle cartridge",
+      "instruções de uso", "instruções de segurança",
+      "modo de usar", "esterilização", "autoclave",
+      "tatuagem", "tattoo",
+      "needle depth", "stroke length", "give adjustment",
+      "operating voltage", "wireless tattoo", "power bolt",
+      "tattooing machine", "cartridge needles", "safety membrane",
+      "máquina", "caneta", "agulha", "cartucho", "needle", "cartridge"],
+     "machine_manual", "tattoo_machine"),
 ]
 
 # Fabricantes conhecidos
 _KNOWN_MANUFACTURERS: dict[str, str] = {
+    # Componentes eletrônicos
     "faulhaber": "Faulhaber",
     "maxon": "Maxon",
     "portescap": "Portescap",
@@ -81,6 +118,12 @@ _KNOWN_MANUFACTURERS: dict[str, str] = {
     "allegro": "Allegro MicroSystems",
     "stmicroelectronics": "STMicroelectronics",
     "st microelectronics": "STMicroelectronics",
+    # Cartuchos / acessórios
+    "krieg tattoo": "Krieg Tattoo",
+    "harpia": "Harpia",
+    "onskin": "ONSKIN",
+    "white head": "White Head",
+    "iron works": "Iron Works",
 }
 
 
@@ -110,11 +153,15 @@ def extract_metadata(text: str, source_path: str = "") -> dict[str, Any]:
     doc_type, category = _classify(text_lower)
 
     # Campos base (todos os tipos)
+    manufacturer = _detect_manufacturer(text_lower)
+    if not manufacturer:
+        manufacturer = _detect_manufacturer(source_path.lower())
+
     metadata: dict[str, Any] = {
         "document_type": doc_type,
         "category": category,
         "title": _extract_title(text, source_path),
-        "manufacturer": _detect_manufacturer(text_lower),
+        "manufacturer": manufacturer,
         "model": _extract_part_number(text, text_lower, doc_type),
         "extra": {},
     }
@@ -144,10 +191,32 @@ def extract_metadata(text: str, source_path: str = "") -> dict[str, Any]:
     elif doc_type == "book":
         _extract_book_fields(text, text_lower, extra)
         metadata["manufacturer"] = str(extra.pop("publisher", ""))
+        book_title = extra.pop("book_title", None)
+        if book_title:
+            metadata["title"] = str(book_title)
     elif doc_type == "academic":
         _extract_academic_fields(text, text_lower, extra)
         metadata["manufacturer"] = str(extra.pop("institution", ""))
         metadata["model"] = str(extra.pop("author", ""))
+        academic_title = extra.pop("academic_title", None)
+        if academic_title:
+            metadata["title"] = str(academic_title)
+    elif doc_type == "machine_manual":
+        _extract_machine_manual_fields(text, text_lower, extra)
+        if not metadata["model"]:
+            metadata["model"] = str(extra.pop("equipment_model", ""))
+    elif doc_type == "power_supply":
+        _extract_power_supply_fields(text, text_lower, extra)
+        if not metadata["model"]:
+            metadata["model"] = str(extra.pop("equipment_model", ""))
+    elif doc_type == "battery":
+        _extract_battery_fields(text, text_lower, extra)
+        if not metadata["model"]:
+            metadata["model"] = str(extra.pop("equipment_model", ""))
+    elif doc_type == "cartridge":
+        _extract_cartridge_fields(text, text_lower, extra)
+        if not metadata["model"]:
+            metadata["model"] = str(extra.pop("equipment_model", ""))
 
     # Limpa valores vazios
     metadata["extra"] = {k: v for k, v in extra.items() if v not in (None, "", [])}
@@ -159,12 +228,21 @@ def extract_metadata(text: str, source_path: str = "") -> dict[str, Any]:
 
 
 def _classify(text_lower: str) -> tuple[str, str]:
-    """Classifica o documento por palavras-chave. Retorna (document_type, category)."""
+    """Classifica o documento por scoring normalizado: percentual de keywords batidas.
+    Threshold mínimo = 2 matches absolutos. Em empate, maior cobertura vence."""
+    best_type, best_category = "generic", "general"
+    best_score = 0.0
+    best_matches = 0
     for keywords, doc_type, category in _KEYWORD_CLASSIFIER:
         matches = sum(1 for kw in keywords if kw in text_lower)
-        if matches >= 2:  # pelo menos 2 palavras-chave
-            return doc_type, category
-    return "generic", "general"
+        if matches < 2:
+            continue
+        score = matches / len(keywords)  # percentual de cobertura
+        if score > best_score or (score == best_score and matches > best_matches):
+            best_score = score
+            best_matches = matches
+            best_type, best_category = doc_type, category
+    return best_type, best_category
 
 
 # ── Extração comum a todos os datasheets ────────────────────────────────
@@ -430,6 +508,8 @@ def _extract_academic_fields(text: str, text_lower: str, extra: dict) -> None:
     extra["course"] = _extract_value(r"curso de[:\s]+(\w[\w\s]+)", text)
     if not extra.get("course"):
         extra["course"] = _extract_value(r"programa de p[óo]s-gradua[çc][ãa]o em[:\s]+(\w[\w\s]+)", text)
+    # Título do trabalho (primeira linha longa em caixa alta)
+    extra["academic_title"] = _extract_academic_title(text)
     # Palavras-chave
     keywords = _extract_academic_keywords(text)
     if keywords:
@@ -440,21 +520,44 @@ def _extract_academic_fields(text: str, text_lower: str, extra: dict) -> None:
         extra["abstract"] = abstract[:300]
 
 
+def _extract_academic_title(text: str) -> str | None:
+    """Extrai o título do trabalho acadêmico — linhas em caixa alta consecutivas."""
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if len(line) >= 20 and line.isupper() and not any(
+            kw in line.lower() for kw in ["universidade", "faculdade", "resumo",
+                                           "abstract", "sumário", "referências",
+                                           "palavras-chave", "keywords", "orientador",
+                                           "isbn", "copyright"]
+        ):
+            # Junta com a próxima linha se também for caixa alta curta
+            title = line
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                if next_line.isupper() and len(next_line) >= 5:
+                    title += " " + next_line
+            return title.title()[:200]
+    return None
+
+
 def _extract_academic_author(text: str) -> str | None:
-    """Extrai nome do autor (padrão brasileiro: NOME SOBRENOME em caixa alta)."""
-    # Padrão: linha com nome em maiúsculas após o título da universidade
+    """Extrai nome do autor (padrão brasileiro: SOBRENOME, Nome)."""
+    # Padrão 1: "BORGES, Willian de Oliveira; Graduando; Unesc"
     for pattern in [
-        r"\n([A-ZÀ-Ú][A-ZÀ-Ú\s]{10,60})\n",  # nome em caixa alta sozinho
-        r"^([A-ZÀ-Ú][A-ZÀ-Ú\s]{10,60})$",     # início de linha
+        r"\n[ \t]*([A-ZÀ-Ú][A-Za-zÀ-ü ,]{10,70});",     # SOBRENOME, Nome; (sem \n, termina em ;)
+        r"\n([A-ZÀ-Ú][A-ZÀ-Ú\s]{10,60})\n",            # nome simples em caixa alta
+        r"^([A-ZÀ-Ú][A-ZÀ-Ú\s]{10,60})$",               # início de linha
     ]:
         match = re.search(pattern, text, re.MULTILINE)
         if match:
-            name = match.group(1).strip()
-            # Filtra falsos positivos (não é nome de universidade)
-            if not any(kw in name.lower() for kw in ["universidade", "faculdade", "centro", "departamento",
-                                                       "programa", "engenharia", "tecnologia", "resumo",
-                                                       "abstract", "sumário", "sumario"]):
-                return name.title()
+            name = match.group(1).strip().rstrip(",").rstrip(";")
+            if len(name.split()) >= 2:
+                if not any(kw in name.lower() for kw in ["universidade", "faculdade", "centro", "departamento",
+                                                            "programa", "engenharia", "tecnologia", "resumo",
+                                                            "abstract", "sumário", "sumario", "referências",
+                                                            "referencias", "referências bibliográficas"]):
+                    return name.title()
     return None
 
 
@@ -478,8 +581,12 @@ def _extract_academic_institution(text: str) -> str | None:
         "universidade federal do rio de janeiro": "UFRJ",
         "doctum": "Faculdade Doctum",
         "faculdade doctum": "Faculdade Doctum",
+        "unesc": "UNESC",
+        "universidade do extremo sul catarinense": "UNESC",
     }
-    for keyword, name in institutions.items():
+    # Ordena por tamanho decrescente (nomes mais específicos primeiro)
+    sorted_inst = sorted(institutions.items(), key=lambda x: -len(x[0]))
+    for keyword, name in sorted_inst:
         if keyword in text_lower:
             return name
     return None
@@ -516,6 +623,8 @@ def _extract_academic_abstract(text: str) -> str | None:
 
 def _extract_book_fields(text: str, text_lower: str, extra: dict) -> None:
     """Campos de livros técnicos/de engenharia."""
+    # Título (mesmo extrator de títulos acadêmicos)
+    extra["book_title"] = _extract_academic_title(text)
     # ISBN-10 ou ISBN-13 (formato flexível: com ou sem hífens)
     isbn = _extract_value(
         r"isbn[:\s]+([\d]{1,5}[-\s]?[\d]{1,7}[-\s]?[\d]{1,7}[-\s]?[\dX]+)",
@@ -573,6 +682,285 @@ def _extract_book_subject(text: str, text_lower: str) -> str | None:
     )
 
 
+# ── Extração específica: manuais de máquinas de tatuagem ──────────────
+
+
+def _extract_machine_manual_fields(text: str, text_lower: str, extra: dict) -> None:
+    """Campos de manuais de máquinas de tatuagem. Valores numéricos puros."""
+    # Modelo — busca nome de modelo conhecido no texto
+    extra["equipment_model"] = _extract_machine_model(text)
+    # Tensão de operação (min / max)
+    for pattern in [
+        r'(\d+\.?\d*)\s*[–\-~àa]+\s*(\d+\.?\d*)\s*V(?:DC|olt)?',
+        r'(\d+\.?\d*)\s*-\s*(\d+\.?\d*)\s*V',
+        r'(\d+)\s*à\s*(\d+)\s*V',
+        r'Min\s*(\d+\.?\d*)\s*volts?\s*/\s*Max\s*(\d+\.?\d*)\s*volts?',
+    ]:
+        m = re.search(pattern, text, re.I)
+        if m:
+            extra["voltage_min_v"] = float(m.group(1))
+            extra["voltage_max_v"] = float(m.group(2))
+            break
+    # RPM máximo
+    rpm_matches = re.findall(r'(\d+[\d.]*)\s*(?:RPM|rpm)', text)
+    if rpm_matches:
+        extra["rpm_max"] = max(int(m.replace(".", "")) for m in rpm_matches)
+    # Curso (mm)
+    strokes = []
+    for m in re.finditer(r'(\d+\.?\d*)\s*mm', text):
+        v = float(m.group(1))
+        if 1.5 <= v <= 5.0:
+            strokes.append(v)
+    if strokes:
+        extra["stroke_options_mm"] = sorted(set(strokes))
+    # Capacidade da bateria
+    m = re.search(r'(\d+)\s*m[Aa]h', text)
+    if m:
+        extra["battery_capacity_mah"] = int(m.group(1))
+    # Peso
+    for pat in [r'(\d+)\s*g\b', r'Approx\.\s*(\d+)\s*g', r'Peso.*?(\d+)\s*g']:
+        m = re.search(pat, text, re.I)
+        if m:
+            w = int(m.group(1))
+            if 50 <= w <= 500:
+                extra["weight_g"] = w
+                break
+    # Tipo de motor
+    if 'brushless' in text_lower:
+        extra["motor_type"] = "brushless"
+    elif 'brush dc' in text_lower:
+        extra["motor_type"] = "brush_dc"
+    elif 'coreless' in text_lower:
+        extra["motor_type"] = "coreless"
+    # Wireless
+    if 'wireless' in text_lower or 'sem fio' in text_lower:
+        extra["wireless"] = True
+    # Bateria
+    extra["has_battery"] = (
+        'bateria' in text_lower or 'battery' in text_lower
+        or 'powerbolt' in text_lower or 'acumulador' in text_lower
+    )
+
+
+def _extract_power_supply_fields(text: str, text_lower: str, extra: dict) -> None:
+    """Campos de fontes de alimentação. Valores numéricos puros."""
+    extra["equipment_model"] = _extract_psu_model(text)
+    # Tensão de entrada
+    for pattern in [
+        r'(?:Power|Input|INPUT)\s*(?:input|voltage)?[:\s]+(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)\s*V',
+        r'(?:Input|INPUT)\s*Voltage[:\s]+(\d+\.?\d*)\s*V',
+        r'(?:INPUT|Input)\s+(\d+\.?\d*)\s*V',
+    ]:
+        m = re.search(pattern, text, re.I)
+        if m:
+            if m.lastindex and m.lastindex >= 2:
+                extra["input_voltage_min_v"] = float(m.group(1))
+                extra["input_voltage_max_v"] = float(m.group(2))
+            else:
+                extra["input_voltage_v"] = float(m.group(1))
+            break
+    # Tensão de saída (min/max)
+    for pattern in [
+        r'(?:Volt|Voltage)\s*output[:\s]+(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)',
+        r'(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)\s*V\s*DC',
+        r'(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)\s*VDC',
+        r'POWER\s*SUPPLY\s*\((\d+\.?\d*)\s*V',
+    ]:
+        m = re.search(pattern, text, re.I)
+        if m:
+            extra["output_voltage_min_v"] = float(m.group(1))
+            if m.lastindex and m.lastindex >= 2:
+                extra["output_voltage_max_v"] = float(m.group(2))
+            break
+    # Corrente de saída (prioriza "output" ou "delivering")
+    for pat in [
+        r'(?:output|delivering).*?(\d+\.?\d*)\s*A\b',
+        r'(\d+\.?\d*)\s*A\s*(?:of\s*output|peak)',
+    ]:
+        m = re.search(pat, text, re.I)
+        if m and float(m.group(1)) <= 20:
+            extra["output_current_continuous_a"] = float(m.group(1))
+            break
+    # Corrente de pico
+    m = re.search(r'(\d+\.?\d*)\s*A\s*peak', text, re.I)
+    if m and float(m.group(1)) <= 30:
+        extra["output_current_peak_a"] = float(m.group(1))
+    # NITRO
+    if 'nitro' in text_lower:
+        extra["has_nitro"] = True
+    # Footswitch
+    if 'footswitch' in text_lower or 'foot switch' in text_lower or 'pedal' in text_lower:
+        extra["has_footswitch"] = True
+    # Display
+    if 'display' in text_lower or 'lcd' in text_lower:
+        extra["has_display"] = True
+    # Timer
+    if 'timer' in text_lower:
+        extra["has_timer"] = True
+    # Presets
+    m = re.search(r'(\d+)\s*(?:memory\s*)?presets?', text_lower)
+    if m:
+        extra["memory_presets_count"] = int(m.group(1))
+    # Peso
+    for pat in [r'(\d+)\s*grams?\b', r'(\d+)\s*g\b']:
+        m = re.search(pat, text, re.I)
+        if m:
+            w = int(m.group(1))
+            if 30 <= w <= 5000:
+                extra["weight_g"] = w
+                break
+    # Dimensões
+    m = re.search(r'(\d+)\s*x\s*(\d+)\s*x\s*(\d+)\s*mm', text)
+    if m:
+        extra["length_mm"] = int(m.group(1))
+        extra["width_mm"] = int(m.group(2))
+        extra["height_mm"] = int(m.group(3))
+    # Wireless
+    if 'wireless' in text_lower or 'ble' in text_lower:
+        extra["wireless"] = True
+    # Proteção
+    if 'overcurrent' in text_lower or 'short circuit' in text_lower:
+        extra["has_overcurrent_protection"] = True
+
+
+def _extract_battery_fields(text: str, text_lower: str, extra: dict) -> None:
+    """Campos de baterias de máquinas. Valores numéricos puros."""
+    extra["equipment_model"] = _extract_battery_model(text, text_lower)
+    # Tensão de operação
+    for pat in [r'Operating Voltage[:\s]+(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)\s*V',
+                r'(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)\s*V\s*DC']:
+        m = re.search(pat, text, re.I)
+        if m:
+            extra["voltage_min_v"] = float(m.group(1))
+            extra["voltage_max_v"] = float(m.group(2))
+            break
+    # Corrente
+    m = re.search(r'Current[:\s]+.*?(\d+\.?\d*)\s*A\b', text, re.I)
+    if m and float(m.group(1)) <= 5:
+        extra["current_max_a"] = float(m.group(1))
+    # Capacidade
+    m = re.search(r'(\d+)\s*m[Aa]h', text)
+    if m:
+        extra["capacity_mah"] = int(m.group(1))
+    # Tipo
+    if 'li-ion' in text_lower or 'li ion' in text_lower:
+        extra["battery_type"] = "Li-ion"
+    elif 'lipo' in text_lower or 'li-po' in text_lower:
+        extra["battery_type"] = "LiPo"
+    # Recarregável
+    if 'rechargeable' in text_lower or 'usb-c' in text_lower:
+        extra["rechargeable"] = True
+    # Display
+    if 'oled' in text_lower or 'display' in text_lower:
+        extra["has_display"] = True
+    # Bluetooth
+    if 'bluetooth' in text_lower:
+        extra["has_bluetooth"] = True
+    # Peso
+    m = re.search(r'(\d+)\s*grams?\b', text, re.I)
+    if m and 10 <= int(m.group(1)) <= 500:
+        extra["weight_g"] = int(m.group(1))
+    # Temperatura
+    m = re.search(r'(\d+)\s*(?:to|–)\s*(\d+)\s*°\s*C', text)
+    if m:
+        extra["operating_temp_min_c"] = int(m.group(1))
+        extra["operating_temp_max_c"] = int(m.group(2))
+
+
+def _extract_battery_model(text: str, text_lower: str) -> str | None:
+    models = ["PowerBolt II", "PowerBolt 2", "PowerBolt",
+              "Lightning", "Rover R-1"]
+    for model in sorted(models, key=lambda x: -len(x)):
+        if model.lower() in text_lower:
+            return model
+    return None
+
+
+def _extract_cartridge_fields(text: str, text_lower: str, extra: dict) -> None:
+    """Campos de cartuchos/agulhas descartáveis."""
+    # Tipos de cartucho — códigos e nomes por extenso
+    type_map = {
+        "RL": [r'(?:\d|^|\s)RL(?:\s|$|,|\.|\d)', r'round\s*liner'],
+        "RS": [r'(?:\d|^|\s)RS(?:\s|$|,|\.|\d)', r'round\s*shader'],
+        "M1": [r'(?:\d|^|\s)M1(?:\s|$|,|\.|\d)', r'(?<!\w)M1(?!\w)'],
+        "RM": [r'(?:\d|^|\s)RM(?:\s|$|,|\.|\d)', r'round\s*magnum'],
+        "CM": [r'(?:\d|^|\s)CM(?:\s|$|,|\.|\d)', r'curved\s*magnum'],
+        "M": [r'(?:\d|^|\s)M(?:\s|$|,|\.|\d)', r'magnum(?!\s*1)'],
+    }
+    types = []
+    for t, patterns in type_map.items():
+        for pat in patterns:
+            if re.search(pat, text, re.I):
+                types.append(t)
+                break
+    if types:
+        extra["cartridge_types"] = types
+    # Diâmetro das agulhas
+    diameters = set()
+    for m in re.finditer(r'(\d+\.?\d+)\s*mm', text):
+        d = float(m.group(1))
+        if 0.10 <= d <= 0.50:
+            diameters.add(d)
+    if diameters:
+        extra["needle_diameter_mm"] = sorted(diameters)
+    # Material
+    if 'aço' in text_lower or 'stainless' in text_lower:
+        extra["needle_material"] = "Aço Inoxidável"
+    if 'abs' in text_lower:
+        extra["body_material"] = "ABS"
+    # Membrana
+    if 'membrana' in text_lower or 'membrane' in text_lower:
+        extra["has_membrane"] = True
+    # Esterilização
+    if 'óxido de etileno' in text_lower or 'ethylene oxide' in text_lower:
+        extra["sterilization_method"] = "Óxido de Etileno"
+    # Validade
+    m = re.search(r'(\d+)\s*anos?', text_lower)
+    if m and 1 <= int(m.group(1)) <= 10:
+        extra["sterility_shelf_life_years"] = int(m.group(1))
+    # Unidades por caixa
+    m = re.search(r'(\d+)\s*unidades?', text_lower)
+    if m and int(m.group(1)) <= 100:
+        extra["units_per_box"] = int(m.group(1))
+    # Uso único
+    if 'uso único' in text_lower or 'single use' in text_lower or 'proibido reprocessar' in text_lower:
+        extra["single_use"] = True
+
+
+def _extract_psu_model(text: str) -> str | None:
+    models = ["TPS-500 X2", "TPS-500", "Machete MK-1", "Rover R-1",
+              "Power Unit I", "Power Unit II", "Hover"]
+    for model in sorted(models, key=lambda x: -len(x)):
+        if model.lower() in text.lower():
+            return model
+    return None
+
+
+def _extract_machine_model(text: str) -> str | None:
+    """Extrai nome do modelo de máquina de tatuagem do texto.
+    Ordenado por tamanho decrescente para evitar matches parciais
+    (ex: 'Sol Nova Unlimited' antes de 'Sol Nova', 'Hawk Pen' antes de 'ONE')."""
+    models = sorted([
+        "Sol Nova Unlimited", "Sol Terra e Sol Luna", "Hawk Thunder",
+        "Spektra Xion", "Linetion Sworder", "DK-W1 PRO",
+        "P3 Pro Turbo", "Transverse Nano", "Dragonfly X2",
+        "Linetion B2", "Flux Max", "Hawk Pen", "Sol Nova",
+        "Hawk Spirit", "Hawk Thunder", "Sol Terra", "Sol Luna",
+        "P2S Pro", "P3 Pro", "W1 PRO", "Alioth", "Alkaid",
+        "Mizar", "Exo", "ONE", "Flux", "Bronc",
+        "xXx", "W1", "P5", "EP10", "EP9",
+    ], key=lambda x: -len(x))
+    for model in models:
+        words = model.lower().split()
+        if len(words) >= 2:
+            # Multi-palavra: todas as palavras devem aparecer como palavras inteiras no texto
+            if all(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in words):
+                return model
+        elif re.search(r'\b' + re.escape(words[0]) + r'\b', text.lower()):
+            return model
+    return None
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────
 
 
@@ -585,10 +973,31 @@ def _extract_title(text: str, source_path: str) -> str:
     return os.path.splitext(os.path.basename(source_path))[0][:120]
 
 
+# Fabricantes de máquinas de tatuagem (prioridade máxima — testados primeiro)
+_MACHINE_MANUFACTURERS: dict[str, str] = {
+    "cheyenne": "Cheyenne / MT.DERM GmbH",
+    "mt.derm": "Cheyenne / MT.DERM GmbH",
+    "dklab": "DKLAB", "dk lab": "DKLAB",
+    "dklabtattoo": "DKLAB", "feito por dklab": "DKLAB",
+    "fk irons": "FK Irons",
+    "electric ink": "Electric Ink",
+    "ez": "EZ", "bronc": "Bronc",
+    "inkmachines": "InkMachines", "musotoku": "Musotoku",
+    "ava": "AVA", "bishop": "Bishop",
+    "ghost": "Ghost",
+}
+
+
 def _detect_manufacturer(text_lower: str) -> str:
-    """Detecta fabricante por palavras-chave."""
+    """Detecta fabricante por palavra inteira (word boundary).
+    Fabricantes de máquinas têm prioridade sobre componentes eletrônicos."""
+    # 1. Fabricantes de máquinas (prioridade)
+    for keyword, name in _MACHINE_MANUFACTURERS.items():
+        if re.search(r'\b' + re.escape(keyword) + r'\b', text_lower):
+            return name
+    # 2. Componentes eletrônicos (fallback)
     for keyword, name in _KNOWN_MANUFACTURERS.items():
-        if keyword in text_lower:
+        if re.search(r'\b' + re.escape(keyword) + r'\b', text_lower):
             return name
     return ""
 
