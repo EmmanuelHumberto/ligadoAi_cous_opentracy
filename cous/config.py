@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -23,6 +23,13 @@ class OpenTracyConfig(BaseModel):
     runtime_url: str = "http://127.0.0.1:8001"
     agent_id: str = "cous"
     timeout: int = 30
+    diagnosis_domain_id: str = ""
+    diagnosis_instance_id: str = ""
+    diagnosis_callback_endpoint: str = "http://localhost:8000/cous/diagnosis/callback"
+    diagnosis_auto_resolve_identity: bool = False
+    diagnosis_domain_name: str = "tattoo_machines"
+    diagnosis_domain_version: str = "v1"
+    diagnosis_entity_type: str = "tattoo_machine"
 
     @field_validator("backend_url", "runtime_url")
     @classmethod

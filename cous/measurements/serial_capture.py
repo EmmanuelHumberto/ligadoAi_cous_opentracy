@@ -43,8 +43,22 @@ def parse_tma_data_line(line: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def _infer_snapshot_type(snapshot: dict[str, Any]) -> str:
+    """Infere o tipo do snapshot quando o campo 'type' está ausente.
+
+    Snaps raw do sensor magnético (MLX90393) não possuem campo type
+    mas contém raw_lsb, raw_field_uT, native_offset_field_uT.
+    """
+    if "type" in snapshot:
+        return normalize_snapshot_type(snapshot["type"])
+    # Detecção por campos característicos
+    if "raw_lsb" in snapshot or "raw_field_uT" in snapshot:
+        return "magnetic"
+    return "unknown"
+
+
 def should_collect_snapshot(snapshot: dict[str, Any], allowed_types: set[str]) -> bool:
-    return normalize_snapshot_type(snapshot.get("type")) in allowed_types
+    return _infer_snapshot_type(snapshot) in allowed_types
 
 
 def collect_tma_snapshots_from_lines(

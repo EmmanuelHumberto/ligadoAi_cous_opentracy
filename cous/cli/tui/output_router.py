@@ -68,7 +68,7 @@ class OutputRouter:
 
     def status_table(self, rows: list[tuple[str, str, str]]) -> None:
         lines = ["Status"]
-        for name, state, detail in rows:
+        for name, state, _detail in rows:
             lines.append(f"  {name}: {state}")
         self._info("\n".join(lines))
 
@@ -129,6 +129,8 @@ class OutputRouter:
 
     def measurement_detail(self, session: dict) -> None:
         from cous.measurements.analysis import summarize_session
+        from cous.measurements.diagnosis import diagnosis_summary_rows
+
         s = summarize_session(session)
         hdr = session.get("header") or {}
         sid = str(s.get("id", ""))
@@ -186,6 +188,7 @@ class OutputRouter:
             rows.append(("Roll", f"{vib['roll_cdeg_avg']:.1f}°"))
         if vib.get("pitch_cdeg_avg") is not None:
             rows.append(("Pitch", f"{vib['pitch_cdeg_avg']:.1f}°"))
+        rows.extend(diagnosis_summary_rows(session))
         self._post(TableData(["Campo", "Valor"], [[c, v] for c, v in rows]))
 
     # ── Controle ────────────────────────────────────────────────────────

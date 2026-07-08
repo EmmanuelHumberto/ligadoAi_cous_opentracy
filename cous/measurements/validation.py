@@ -70,10 +70,14 @@ def validate_snapshots(
 def _validate_snapshot(snapshot: dict[str, Any], allowed_types: set[str]) -> list[str]:
     errors: list[str] = []
     snapshot_type = normalize_snapshot_type(snapshot.get("type"))
+    # Inferir tipo para snaps sem campo type (ex: raw magnético)
+    if "type" not in snapshot:
+        from cous.measurements.serial_capture import _infer_snapshot_type
+        snapshot_type = _infer_snapshot_type(snapshot)
     if snapshot_type not in allowed_types:
         errors.append("tipo nao permitido para a sessao")
-    if "type" not in snapshot:
-        errors.append("campo type ausente")
+    if "type" not in snapshot and snapshot_type == "unknown":
+        errors.append("campo type ausente e tipo nao pode ser inferido")
     timestamp = snapshot.get("timestamp_us")
     if timestamp is None:
         errors.append("campo timestamp_us obrigatorio")

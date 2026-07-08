@@ -25,7 +25,9 @@ O **Cous** é um cliente de terminal fino (thin client) para a plataforma OpenTr
 - **Comandos de knowledge:** indexar, validar, buscar, remover, listar documentos
 - **Indexação automática de medições** no FAISS após captura (Fase B)
 - **Captura, persistência local e sincronização** de medições (TMA_DATA via porta serial)
-- **Diagnóstico e laudo** de medições (remoto com fallback local)
+- **Diagnóstico v3** de medições via OpenTracy (`/v3/diagnosis`), worker e
+  callback HTTP para persistência local do resultado
+- **Laudo** de medições
 - **Feedback humano estruturado** — comandos `/confirmar`, `/corrigir`, `/solucao` (Fase B2)
 - **Promoção de feedback a golden** — `/confirmar` promove trace a golden no OpenTracy (Fase E)
 - **Modo mock** para desenvolvimento e testes offline
@@ -56,7 +58,7 @@ O Cous é a face operacional do ecossistema LigadoAI/OpenTracy para técnicos de
 
 ## Guia Rápido de Inicialização
 
-### Subir o ecossistema (4 terminais)
+### Subir o ecossistema (5 terminais)
 
 ```bash
 # Terminal 1 — PostgreSQL (deve estar rodando em localhost:5432)
@@ -77,9 +79,13 @@ uv run python -m runtime.server
 cd /home/hiatus/Projetos/ligadotattoo/OpenTracy/backend
 npm run start   
 
-# Terminal 4 — Cous (bootstrap + iniciar)
+# Terminal 4 — Callback HTTP do Cous para diagnóstico
 cd /home/hiatus/Projetos/ligadotattoo/ligadoAi_cous_opentracy
 uv run cous --bootstrap   # só na primeira vez
+uv run cous --callback-server --callback-port 8000
+
+# Terminal 5 — Cous terminal
+cd /home/hiatus/Projetos/ligadotattoo/ligadoAi_cous_opentracy
 uv run cous                  # uso normal
 ``` 
 
@@ -91,12 +97,23 @@ uv run cous                  # uso normal
 /medicoes             # lista medições salvas
 /medicoes FK          # filtra por termo
 /medicao <id>         # detalhes de uma medição
+/diagnostico <id>     # enfileira diagnóstico no OpenTracy
+/diagnostico status <id>  # acompanha fila/resultado do diagnóstico
 /novo                 # nova sessão de chat
 /listar               # lista sessões de chat
 /exportar             # exporta conversa como markdown
 /status               # status do OpenTracy
 /sair                 # encerra
 ```
+
+Antes de testar uma captura real, rode o smoke test operacional:
+
+```bash
+uv run python scripts/smoke_diagnosis.py
+```
+
+Ele verifica runtime, diagnóstico, callback server e configuração local sem
+enfileirar nenhum diagnóstico.
 
 ### Modo offline (sem OpenTracy)
 
@@ -488,7 +505,7 @@ Mostra tabela com colunas: ID, Msgs, Resumo (sim/não), Atualizada, Preview
 | `/medicoes`    | `/m`   | Lista sessões de medição locais (tabela, com filtro opcional)|
 | `/medicao`     | `/md`  | Mostra detalhes completos de uma medição                     |
 | `/sincronizar` | `/sync`| Sincroniza medições com o runtime (uma ou todas pendentes)   |
-| `/diagnostico` | `/dg`  | Gera diagnóstico de uma medição (remoto com fallback local)  |
+| `/diagnostico` | `/dg`  | Enfileira diagnóstico v3 no OpenTracy e consulta status      |
 | `/laudo`       | `/ld`  | Gera laudo em markdown de uma medição                        |
 
 #### `/capturar`
@@ -574,13 +591,13 @@ Snapshots inválidos são contabilizados como rejeitados e não entram na sessã
   4. Atualiza `sync_status`, `remote_id` e `last_sync_error` localmente
 
 #### `/diagnostico [id]`
-- Prefere o backend remoto quando a sessão já tem `remote_id`
-- Se não tem `remote_id`, tenta sincronizar primeiro
-- Cai para modo local se o runtime falhar
-- Retorna: status `approved` (sim/não), resumo, e a sessão atualizada
+- Enfileira a medição no OpenTracy em `POST /v3/diagnosis`
+- Requer `domain_id`, `instance_id` e `capture_session_id` reais ou resolução automática configurada
+- O resultado chega por callback em `/cous/diagnosis/callback` e é salvo em `.cous-data/measurements.json`
+- Use `/diagnostico status <id>` ou `/diagnostico resultado <id>` para consultar fila/resultado
+- Use `/medicao <id>` para ver o diagnóstico persistido junto dos detalhes da medição
 
 #### `/laudo [id]`
-- Mesmo comportamento do diagnóstico (remoto com fallback local)
 - Retorna laudo em markdown (renderizado no painel do agente)
 - Status da sessão atualizado para `reported`
 
@@ -604,7 +621,7 @@ Snapshots inválidos são contabilizados como rejeitados e não entram na sessã
 | `draft`      | Sessão criada, cabeçalho preenchido               |
 | `saved`      | Snapshots salvos, sessão finalizada               |
 | `abandoned`  | Sessão pausada (operador escolheu "sair")         |
-| `diagnosed`  | Diagnóstico gerado (local ou remoto)              |
+| `diagnosed`  | Estado legado; diagnóstico v3 atual usa `diagnosis_status` |
 | `reported`   | Laudo gerado (local ou remoto)                    |
 
 ---
@@ -908,7 +925,8 @@ nova mensagem     # Envia mensagem na nova sessão (para ter conteúdo)
 /md                               # Alias
 /medicao <id-parcial>             # Por prefixo do ID
 
-/diagnostico                      # Sem argumento — usa a mais recente
+/diagnostico <id-parcial>         # Enfileira diagnóstico v3 no OpenTracy
+/diagnostico status <id-parcial>  # Consulta fila/resultado persistido
 /dg                               # Alias
 /laudo                            # Gera laudo em markdown
 /ld                               # Alias
@@ -1072,7 +1090,8 @@ Com a remoção da injeção manual, o pipeline retrieve do OpenTracy é respons
 /medicoes [filtro] | /m [f]    — Lista medições
 /medicao [id] | /md [id]       — Detalhes medição
 /sincronizar [id] | /sync [id] — Sincroniza medições
-/diagnostico [id] | /dg [id]   — Diagnóstico
+/diagnostico [id] | /dg [id]   — Enfileira diagnóstico v3
+/diagnostico status [id]       — Consulta fila/resultado
 /laudo [id] | /ld [id]         — Laudo markdown
 ```
 
@@ -1127,7 +1146,8 @@ Use esta checklist para garantir que todas as funcionalidades foram testadas:
 - [ ] `/medicoes` lista com filtro
 - [ ] `/medicao` mostra detalhes completos
 - [ ] `/sincronizar` (individual e lote)
-- [ ] `/diagnostico` remoto com fallback local
+- [ ] `/diagnostico` enfileira no OpenTracy
+- [ ] `/diagnostico status` mostra fila, callback ou erro final
 - [ ] `/laudo` remoto com fallback local, markdown renderizado
 - [ ] Contexto de medições anexado ao chat em consultas relevantes
 - [ ] Logs JSONL gravados com eventos corretos

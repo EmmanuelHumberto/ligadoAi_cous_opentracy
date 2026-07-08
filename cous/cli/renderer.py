@@ -6,6 +6,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from cous.measurements.diagnosis import diagnosis_summary_rows
+
 console = Console()
 
 
@@ -160,6 +162,7 @@ def measurement_detail(session: dict) -> None:
         ("Sync", str(session.get("sync_status") or "-")),
         ("Remote ID", str(session.get("remote_id") or "-")),
         ("Erro sync", str(session.get("last_sync_error") or "-")),
+        *diagnosis_summary_rows(session),
         ("Atualizada", str(session.get("updated_at") or "-")),
     ]
     table = Table(title="Medicao", show_header=False)

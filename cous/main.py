@@ -5,31 +5,58 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from cous.application.feedback import FeedbackStore
+from cous.application.session import ConversationStore
 from cous.auth import AuthError, TokenProvider
 from cous.bootstrap import bootstrap_auth
-from cous.logger import EventLogger
+from cous.callback_server import start_background_callback_server
 from cous.cli import renderer
 from cous.cli.terminal import run_terminal
 from cous.clients.knowledge import KnowledgeClient
 from cous.clients.measurements import MeasurementsClient
 from cous.clients.opentracy import OpenTracyClient
-from cous.config import expand_path, load_config
-from cous.application.session import ConversationStore
-from cous.application.feedback import FeedbackStore
 from cous.clients.system_prompt import SystemPromptCache
+from cous.config import expand_path, load_config
 from cous.logger import EventLogger, TraceEmitter
-from cous.mocks import MockFeedbackStore, MockKnowledgeClient, MockMeasurementsClient, MockOpenTracyClient
 from cous.measurements.store import MeasurementLocalStore
+from cous.mocks import (
+    MockFeedbackStore,
+    MockKnowledgeClient,
+    MockMeasurementsClient,
+    MockOpenTracyClient,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cous thin client for OpenTracy")
     parser.add_argument("--mock", action="store_true", help="Reservado para clientes fake")
     parser.add_argument("--bootstrap", action="store_true", help="Reservado para bootstrap")
+    parser.add_argument(
+        "--callback-server",
+        action="store_true",
+        help="Sobe servidor HTTP para callbacks de diagnostico do OpenTracy",
+    )
+    parser.add_argument(
+        "--callback-host",
+        default="127.0.0.1",
+        help="Host do servidor de callback",
+    )
+    parser.add_argument(
+        "--callback-port",
+        type=int,
+        default=8000,
+        help="Porta do servidor de callback",
+    )
     parser.add_argument("--config", type=str, default=None, help="Caminho para config.toml")
     args = parser.parse_args()
 
     config = load_config(Path(args.config) if args.config else None)
+    if args.callback_server:
+        from cous.callback_server import run_callback_server
+
+        run_callback_server(config, args.callback_host, args.callback_port)
+        return
+
     if args.bootstrap:
         result = bootstrap_auth(config)
         renderer.success(f"Token Cous: {result.token_file}")
@@ -46,7 +73,10 @@ def main() -> None:
         if result.api_connected:
             renderer.info(f"Canal API pronto: {result.public_url}")
         else:
-            renderer.warning("Canal API nao foi conectado automaticamente; verifique se o runtime esta ativo.")
+            renderer.warning(
+                "Canal API nao foi conectado automaticamente; "
+                "verifique se o runtime esta ativo."
+            )
         return
 
     logger = EventLogger(
@@ -111,6 +141,9 @@ def main() -> None:
     feedback_store = FeedbackStore(expand_path(config.feedback.storage_file))
     trace_emitter = TraceEmitter(expand_path(config.logs.traces_file))
     system_prompt_cache = SystemPromptCache(client=opentracy, config=config.system_prompt)
+    callback_server = start_background_callback_server(config)
+    if callback_server is not None:
+        renderer.info(f"Callback diagnostico v3 ativo em {callback_server.endpoint}")
     try:
         run_terminal(
             config, opentracy, knowledge, measurements, conversations, logger,
@@ -122,6 +155,8 @@ def main() -> None:
         opentracy.close()
         knowledge.close()
         measurements.close()
+        if callback_server is not None:
+            callback_server.stop()
 
 
 if __name__ == "__main__":

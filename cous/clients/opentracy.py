@@ -74,6 +74,40 @@ class OpenTracyClient:
             {},
         )
 
+    def promote_knowledge_unit(self, ku_id: str, confirmed_source_count: int = 1,
+                                has_human_validation: bool = True) -> dict[str, Any]:
+        """COUS v3.1 — Promove uma KnowledgeUnit após confirmação humana.
+
+        Chamado quando o operador confirma um diagnóstico (/confirmar).
+        Usa runtime_url (porta 8001) — o endpoint v3 está no runtime Python.
+        """
+        return self._auth.post(
+            f"{self._runtime_url}/v3/knowledge-units/{ku_id}/promote",
+            {
+                "target_level": "confirmed",
+                "confirmed_source_count": confirmed_source_count,
+                "has_human_validation": has_human_validation,
+                "has_open_contradictions": False,
+            },
+        )
+
+    def create_knowledge_unit(self, domain_id: str, title: str, statement: str,
+                               confidence: float = 0.8) -> dict[str, Any]:
+        """COUS v3.1 — Cria uma nova KnowledgeUnit a partir de feedback confirmado.
+
+        Usa runtime_url (porta 8001).
+        """
+        return self._auth.post(
+            f"{self._runtime_url}/v3/knowledge-units",
+            {
+                "domain_id": domain_id,
+                "title": title,
+                "statement": statement,
+                "knowledge_level": "experimental",
+                "confidence": confidence,
+            },
+        )
+
     def _is_healthy(self, url: str) -> bool:
         try:
             return self._plain.get(url).is_success

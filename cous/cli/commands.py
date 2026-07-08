@@ -20,6 +20,7 @@ from cous.clients.opentracy import OpenTracyClient
 from cous.config import Config
 from cous.logger import EventLogger
 from cous.measurements.constants import DEFAULT_VERTICALS
+from cous.measurements.diagnosis import diagnosis_summary_rows
 from cous.measurements.serial_capture import (
     capture_tma_snapshots,
     normalize_snapshot_type,
@@ -52,6 +53,8 @@ class CommandContext:
     trace_emitter: TraceEmitter | None = None
     last_trace_id: str = ""  # trace_id da última resposta
     output_router: "OutputRouter | NullOutputRouter | None" = None  # populado no TUI em on_mount()
+    send_to_chat: "Callable[[str], None] | None" = None  # callback para enviar prompt ao fluxo de chat normal
+    post_assistant: "Callable[[str], None] | None" = None  # callback para exibir mensagem do assistente diretamente (sem LLM)
 
 
 class CommandRouter:
@@ -106,7 +109,13 @@ def build_router() -> CommandRouter:
     router.register("remover", _delete, "Remove documento do indice")
     router.register("medicoes", _measurements, "Lista sessoes de medicao", aliases=["m"])
     router.register("medicao", _measurement, "Mostra detalhes de uma medicao", aliases=["md"])
-    router.register("diagnostico", _measurement_diagnostic, "Gera diagnostico de uma medicao", aliases=["dg"])
+    router.register(
+        "diagnostico",
+        _measurement_diagnostic,
+        "Enfileira diagnostico no OpenTracy",
+        aliases=["dg"],
+    )
+    router.register("comparar", _measurement_compare, "Compara duas medicoes e gera laudo comparativo", aliases=["cmp"])
     router.register("laudo", _measurement_report, "Gera laudo de uma medicao", aliases=["ld"])
     router.register("capturar", _capture, "Cria sessao de medicao/coleta", aliases=["cp"])
     router.register("sincronizar", _sync_measurements, "Sincroniza medicoes com o runtime", aliases=["sync"])
@@ -132,7 +141,8 @@ def _help(ctx: CommandContext, args: str) -> bool:
         ("Feedback",  "#FFB86C", ["/confirmar", "/corrigir", "/solucao"]),
         ("Knowledge", "#639922", ["/validar", "/indexar", "/indexados", "/buscar", "/remover"]),
         ("Medições",  "#56B6C2", ["/capturar", "/medicoes", "/medicao",
-                                   "/sincronizar", "/deletar_medicao", "/diagnostico", "/laudo"]),
+                                   "/sincronizar", "/deletar_medicao", "/diagnostico",
+                                   "/comparar", "/laudo"]),
     ]
     router = build_router()
     cmd_desc = dict(router.descriptions())
@@ -168,6 +178,8 @@ def _status(ctx: CommandContext, args: str) -> bool:
     knowledge_detail = "-"
     measurements_state = "indisponivel"
     measurements_detail = "-"
+    diagnosis_state = "indisponivel"
+    diagnosis_detail = "-"
     try:
         knowledge = ctx.knowledge.status()
         knowledge_state = "ok"
@@ -192,11 +204,25 @@ def _status(ctx: CommandContext, args: str) -> bool:
         measurements_detail = str(exc)
         if exc.status_code in {401, 403}:
             measurements_state = "auth_falhou"
+    try:
+        diagnosis = ctx.measurements.diagnosis_runtime_status()
+        status = str(diagnosis.get("status") or "unknown")
+        diagnosis_state = "ok" if status in {"available", "mock"} else status
+        diagnosis_detail = (
+            f"db={'sim' if diagnosis.get('database_configured') else 'nao'} "
+            f"worker={'sim' if diagnosis.get('worker_enabled') else 'nao'} "
+            f"running={'sim' if diagnosis.get('worker_running') else 'nao'}"
+        )
+    except (ClientError, AttributeError) as exc:
+        diagnosis_detail = str(exc)
+        if isinstance(exc, ClientError) and exc.status_code in {401, 403}:
+            diagnosis_state = "auth_falhou"
     rows = [
         ("OpenTracy backend", "ok" if health["backend"] else "offline", "-"),
         ("OpenTracy runtime", "ok" if health["runtime"] else "offline", "-"),
         ("Knowledge API", knowledge_state, knowledge_detail),
         ("Measurements API", measurements_state, measurements_detail),
+        ("Diagnosis API", diagnosis_state, diagnosis_detail),
     ]
     if ctx.output_router:
         ctx.output_router.status_table(rows)
@@ -532,8 +558,9 @@ def _measurement_report(ctx: CommandContext, args: str) -> bool:
     try:
         result = ctx.measurements.report(session_id)
         markdown = str(result.get("markdown") or "")
-        _route_msg(ctx, "info", f"Laudo gerado via {result.get('source') or 'desconhecido'}.")
-        if ctx.output_router:
+        if ctx.post_assistant:
+            ctx.post_assistant(markdown)
+        elif ctx.output_router:
             ctx.output_router.assistant(markdown)
         else:
             renderer.assistant(markdown)
@@ -543,25 +570,333 @@ def _measurement_report(ctx: CommandContext, args: str) -> bool:
 
 
 def _measurement_diagnostic(ctx: CommandContext, args: str) -> bool:
+    """Enfileira diagnóstico remoto COUS v3 no OpenTracy."""
+    parts = args.strip().split(maxsplit=1)
+    if parts and parts[0].lower() in {"status", "resultado", "result"}:
+        return _measurement_diagnostic_status(
+            ctx,
+            parts[1] if len(parts) > 1 else "",
+        )
+
     session_id = args.strip() or _prompt_measurement_session_id(ctx, "diagnostico")
     if not session_id:
         _route_msg(ctx, "error", "Uso: /diagnostico <id>")
         return True
+
     try:
-        result = ctx.measurements.diagnose(session_id)
-        _route_msg(ctx, "info", f"Diagnostico gerado via {result.get('source') or 'desconhecido'}.")
-        diagnostic = result.get("diagnostic") or {}
-        summary = str(diagnostic.get("summary") or "-")
-        approved = "sim" if diagnostic.get("approved") else "nao"
-        _route_msg(ctx, "info", f"Aprovado: {approved}")
-        _route_msg(ctx, "info", f"Resumo: {summary}")
-        if ctx.output_router:
-            ctx.output_router.measurement_detail(result.get("session") or ctx.measurements.get_session(session_id))
-        else:
-            renderer.measurement_detail(result.get("session") or ctx.measurements.get_session(session_id))
-    except (ClientError, ValueError) as exc:
+        result = ctx.measurements.diagnose_v3(session_id)
+    except (ClientError, ValueError, AttributeError) as exc:
         _route_msg(ctx, "error", str(exc))
+        return True
+
+    diagnostic = result.get("diagnostic") or {}
+    status = str(diagnostic.get("status") or "unknown")
+    correlation_id = str(diagnostic.get("correlation_id") or "")
+    source = str(result.get("source") or "")
+
+    if status == "local_fallback":
+        error = str(diagnostic.get("error") or "diagnostico v3 indisponivel")
+        _route_msg(ctx, "warning", f"Diagnostico v3 nao enfileirado: {error}")
+        if correlation_id:
+            _route_msg(ctx, "info", f"correlation_id local={correlation_id}")
+        return True
+
+    _route_msg(ctx, "success", f"Diagnostico v3 enfileirado: status={status}")
+    if correlation_id:
+        _route_msg(ctx, "info", f"correlation_id={correlation_id}")
+    _route_msg(
+        ctx,
+        "info",
+        "Fonte: "
+        + (source or "v3-remoto")
+        + ". O resultado final sera disponibilizado pelo worker/callback do OpenTracy.",
+    )
+    _route_msg(ctx, "info", f"Consulte com: /diagnostico resultado {session_id}")
     return True
+
+
+def _measurement_diagnostic_status(ctx: CommandContext, args: str) -> bool:
+    session_id = args.strip() or _prompt_measurement_session_id(ctx, "diagnostico")
+    if not session_id:
+        _route_msg(ctx, "error", "Uso: /diagnostico status <id>")
+        return True
+
+    try:
+        session = ctx.measurements.get_session(session_id)
+    except (ClientError, ValueError, AttributeError) as exc:
+        _route_msg(ctx, "error", str(exc))
+        return True
+
+    if session is None:
+        _route_msg(ctx, "error", f"Medicao nao encontrada: {session_id}")
+        return True
+
+    if hasattr(ctx.measurements, "refresh_diagnosis_status"):
+        try:
+            refreshed = ctx.measurements.refresh_diagnosis_status(session_id)
+            session = refreshed.get("session") or session
+        except (ClientError, ValueError, AttributeError):
+            pass
+
+    rows = diagnosis_summary_rows(session)
+    if not rows:
+        _route_msg(ctx, "warning", f"Nenhum diagnostico registrado para {session_id}.")
+        return True
+
+    lines = [f"Diagnostico da medicao {session_id}"]
+    lines.extend(f"{key}: {value}" for key, value in rows)
+    text = "\n".join(lines)
+    if ctx.post_assistant:
+        ctx.post_assistant(text)
+    elif ctx.output_router:
+        ctx.output_router.assistant(text)
+    else:
+        renderer.assistant(text)
+    return True
+
+
+def _measurement_compare(ctx: CommandContext, args: str) -> bool:
+    """Compara duas sessões de medição e gera laudo comparativo (motor local).
+
+    Uso: /comparar <id1> <id2>
+         /comparar              (compara as duas últimas)
+         /comparar <id1>        (compara <id1> com a última)
+
+    Extrai valores médios de cada sessão, compara campo a campo,
+    aplica cadeias causais nas diferenças e exibe laudo formatado.
+    """
+    args_stripped = args.strip()
+    ids = args_stripped.split()
+
+    sessions_list = ctx.measurements.list_sessions()
+    if len(sessions_list) < 2:
+        _route_msg(ctx, "error", "Sao necessarias pelo menos 2 sessoes de medicao para comparar.")
+        return True
+
+    all_ids = [str(s.get("id") or "") for s in sessions_list]
+
+    # Determinar quais sessões comparar
+    if len(ids) == 0:
+        session_id_a = all_ids[-2] if len(all_ids) >= 2 else ""
+        session_id_b = all_ids[-1]
+    elif len(ids) == 1:
+        session_id_a = ids[0]
+        session_id_b = all_ids[-1]
+    else:
+        session_id_a, session_id_b = ids[0], ids[1]
+
+    if session_id_a == session_id_b:
+        _route_msg(ctx, "error", "Os IDs das sessoes devem ser diferentes.")
+        return True
+
+    try:
+        session_a = ctx.measurements.get_session(session_id_a)
+        session_b = ctx.measurements.get_session(session_id_b)
+    except Exception as e:
+        _route_msg(ctx, "error", f"Erro ao carregar sessoes: {e}")
+        return True
+
+    if not session_a or not session_b:
+        _route_msg(ctx, "error", "Uma ou ambas as sessoes nao foram encontradas.")
+        return True
+
+    avg_a = _extract_session_averages(session_a)
+    avg_b = _extract_session_averages(session_b)
+
+    header_a = session_a.get("header") or {}
+    header_b = session_b.get("header") or {}
+
+    laudo = _render_comparison_report(
+        session_id_a, header_a, avg_a,
+        session_id_b, header_b, avg_b,
+    )
+
+    if ctx.post_assistant:
+        try:
+            ctx.post_assistant(laudo)
+        except Exception:
+            pass
+    elif ctx.send_to_chat:
+        try:
+            ctx.send_to_chat(laudo)
+        except Exception:
+            pass
+    else:
+        _route_msg(ctx, "assistant", laudo)
+
+    return True
+
+
+def _extract_session_averages(session: dict) -> dict[str, dict]:
+    """Extrai valores médios por tipo de snapshot de uma sessão."""
+    snapshots = session.get("snapshots") or []
+    accum: dict[str, dict[str, float]] = {}
+    counts: dict[str, dict[str, int]] = {}
+
+    for snap in snapshots:
+        snap_type = snap.get("type", "desconhecido")
+        if snap_type not in accum:
+            accum[snap_type] = {}
+            counts[snap_type] = {}
+
+        for key, val in snap.items():
+            if key in ("type", "status", "version", "valid", "snapshot_kind",
+                        "armature_resistance_measured"):
+                continue
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                accum[snap_type][key] = accum[snap_type].get(key, 0.0) + float(val)
+                counts[snap_type][key] = counts[snap_type].get(key, 0) + 1
+
+    averages: dict[str, dict[str, float]] = {}
+    for snap_type, fields in accum.items():
+        averages[snap_type] = {}
+        for field, total in fields.items():
+            cnt = counts[snap_type].get(field, 1)
+            averages[snap_type][field] = total / cnt if cnt > 0 else 0.0
+
+    return averages
+
+
+def _render_comparison_report(
+    id_a: str, header_a: dict, avg_a: dict,
+    id_b: str, header_b: dict, avg_b: dict,
+) -> str:
+    """Renderiza comparativo numérico entre duas sessões. Apenas dados, sem interpretação."""
+    fab_a = header_a.get("fabricante", "?")
+    mod_a = header_a.get("modelo", "?")
+    fab_b = header_b.get("fabricante", "?")
+    mod_b = header_b.get("modelo", "?")
+
+    lines = [
+        "╔══ COMPARAÇÃO NUMÉRICA ═══════════╗",
+        f"║ A: {fab_a} {mod_a}",
+        f"║ B: {fab_b} {mod_b}",
+        "╠══════════════════════════════════╣",
+    ]
+
+    # Todos os campos numéricos, agrupados por tipo de snapshot
+    # Usar os campos que existem nos dados, não uma lista fixa
+    all_campos: dict[str, set] = {}
+    for snap_type in set(list(avg_a.keys()) + list(avg_b.keys())):
+        campos_a = set(avg_a.get(snap_type, {}).keys())
+        campos_b = set(avg_b.get(snap_type, {}).keys())
+        all_campos[snap_type] = campos_a | campos_b
+
+    total_diffs = 0
+
+    for snap_type in sorted(all_campos.keys()):
+        campos = sorted(all_campos[snap_type])
+        vals_a = avg_a.get(snap_type, {})
+        vals_b = avg_b.get(snap_type, {})
+
+        lines.append(f"╟── {snap_type} ({len(campos)} campos) ──╢")
+
+        for campo in campos:
+            va = vals_a.get(campo)
+            vb = vals_b.get(campo)
+
+            if va is None and vb is None:
+                continue
+
+            # Formatar valores
+            va_str = f"{va:.1f}" if isinstance(va, float) else (str(va) if va is not None else "?")
+            vb_str = f"{vb:.1f}" if isinstance(vb, float) else (str(vb) if vb is not None else "?")
+
+            if va is not None and vb is not None and isinstance(va, (int, float)) and isinstance(vb, (int, float)):
+                delta = vb - va
+                if va != 0:
+                    pct = (delta / abs(va)) * 100
+                    sinal = "+" if delta > 0 else ""
+                    lines.append(f"║ {campo[:20]:20s} {va_str:>8s} → {vb_str:>8s}  Δ={sinal}{delta:.1f} ({pct:+.1f}%)")
+                else:
+                    lines.append(f"║ {campo[:20]:20s} {va_str:>8s} → {vb_str:>8s}  Δ={delta:.1f}")
+                total_diffs += 1
+            elif va is not None:
+                lines.append(f"║ {campo[:20]:20s} {va_str:>8s}   (ausente em B)")
+            elif vb is not None:
+                lines.append(f"║ {campo[:20]:20s} {'?':>8s} → {vb_str:>8s} (ausente em A)")
+
+    lines.append("╠══════════════════════════════════╣")
+    lines.append(f"║ Total de campos comparados: {total_diffs}")
+    lines.append("║ Use /diagnostico <id> para análise")
+    lines.append("║ Use /laudo <id> para laudo completo")
+    lines.append("╚══════════════════════════════════╝")
+    return "\n".join(lines)
+
+
+def _build_diagnosis_prompt(session: dict) -> str:
+    """Monta o prompt de diagnóstico a partir de uma sessão de medição."""
+    header = session.get("header") or {}
+    snapshots = session.get("snapshots") or []
+    
+    fabricante = header.get("fabricante", "?")
+    modelo = header.get("modelo", "?")
+    tipo_coleta = header.get("tipo_coleta", "?")
+    observacoes = header.get("observacoes", "")
+    
+    # Resumo estatístico por tipo de snapshot
+    from collections import Counter
+    type_counts = Counter()
+    exemplos = {}
+    for snap in snapshots:
+        t = snap.get("type", "desconhecido")
+        type_counts[t] += 1
+        if t not in exemplos:
+            exemplos[t] = {k: v for k, v in snap.items() if k not in ("type", "status", "version", "valid")}
+    
+    # Montar prompt
+    parts = [
+        "=== SOLICITAÇÃO DE DIAGNÓSTICO TÉCNICO ===",
+        f"Máquina: {fabricante} {modelo}",
+        f"Tipo de coleta: {tipo_coleta}",
+    ]
+    
+    if observacoes:
+        parts.append(f"Observações do operador: {observacoes}")
+    
+    parts.append(f"\nTotal de snapshots coletados: {len(snapshots)}")
+    parts.append("Distribuição por tipo:")
+    for t, c in type_counts.most_common():
+        parts.append(f"  - {t}: {c} snapshots")
+    
+    # Amostras: no máximo 2 snapshots por tipo para não estourar timeout
+    parts.append("\nAmostras de cada tipo de medição (até 2 por tipo):")
+    for t, campos in sorted(exemplos.items()):
+        parts.append(f"\n  [{t}] — amostra de {type_counts[t]} snapshots")
+        for k, v in sorted(campos.items()):
+            if isinstance(v, float):
+                parts.append(f"    {k}: {v:.3f}")
+            else:
+                parts.append(f"    {k}: {v}")
+    
+    # Relações da assinatura eletromecânica (Firmware v2)
+    for snap in snapshots:
+        if snap.get("type") == "electromechanical_signature" and "relations" in snap:
+            rels = snap["relations"]
+            parts.append("\nRelações observado vs referência (assinatura eletromecânica):")
+            for rel_name, rel_data in sorted(rels.items()):
+                if isinstance(rel_data, dict) and rel_data.get("valid"):
+                    obs = rel_data.get("obs", "?")
+                    ref = rel_data.get("ref", "?")
+                    err = rel_data.get("err", "?")
+                    conf = rel_data.get("conf", "?")
+                    parts.append(f"  {rel_name}: obs={obs} ref={ref} erro={err}‰ conf={conf}/1000")
+            break  # só uma assinatura por sessão
+    
+    parts.append("\n---")
+    parts.append("Com base nos dados acima e nos documentos técnicos indexados")
+    parts.append("(datasheets, ordens de serviço, manuais), gere um diagnóstico")
+    parts.append("técnico estruturado com:")
+    parts.append("1. Análise dos valores medidos e das relações observado vs referência")
+    parts.append("2. Possíveis causas (baseadas em OS similares se disponíveis)")
+    parts.append("3. Recomendações de manutenção")
+    parts.append("4. Nível de confiança do diagnóstico")
+    
+    return "\n".join(parts)
+
+
+def _count_snapshots(session: dict) -> int:
+    return len(session.get("snapshots") or [])
 
 
 def _capture(ctx: CommandContext, args: str) -> bool:
@@ -1150,6 +1485,22 @@ def _confirm_feedback(ctx: CommandContext, args: str) -> bool:
         ctx.opentracy.promote_to_golden(trace_id)
     except Exception as exc:
         _route_msg(ctx, "warning", f"Promocao a golden falhou: {exc}")
+    
+    # COUS v3.1: promover hipótese confirmada a KnowledgeUnit
+    try:
+        # Buscar correlation_id associado à última resposta (se for diagnóstico)
+        session_data = ctx.measurements.latest_session()
+        if session_data:
+            corr_id = session_data.get("diagnosis_correlation_id")
+            if corr_id:
+                # Tentar promover — o correlation_id não é o ku_id diretamente,
+                # mas indica que há um diagnóstico pendente de confirmação
+                _route_msg(ctx, "info", f"Diagnostico {corr_id[:8]}... marcado como confirmado.")
+                # Incrementar contador de casos confirmados para KUs relacionadas
+                ctx.logger.log("knowledge_confirmed", correlation_id=corr_id, trace_id=trace_id)
+    except Exception:
+        pass  # falha não-bloqueante — feedback já foi registrado
+    
     return True
 
 

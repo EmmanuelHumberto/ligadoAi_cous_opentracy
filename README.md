@@ -24,6 +24,8 @@ O novo Cous faz:
 - comandos de knowledge (`/indexar`, `/buscar`, `/validar`, `/indexados`, `/remover`);
 - captura, persistência local e sincronização de medições;
 - indexação automática de medições no FAISS após cada `/capturar`;
+- diagnóstico v3 via OpenTracy (`/diagnostico`), com fila, worker, callback e
+  persistência local do resultado;
 - feedback humano estruturado (`/confirmar`, `/corrigir`, `/solucao`);
 - promoção de feedback confirmado a golden no runtime.
 
@@ -112,6 +114,13 @@ backend_url = "http://127.0.0.1:8002"
 runtime_url = "http://127.0.0.1:8001"
 agent_id = "cous"
 timeout = 30
+diagnosis_domain_id = ""
+diagnosis_instance_id = ""
+diagnosis_callback_endpoint = "http://localhost:8000/cous/diagnosis/callback"
+diagnosis_auto_resolve_identity = false
+diagnosis_domain_name = "tattoo_machines"
+diagnosis_domain_version = "v1"
+diagnosis_entity_type = "tattoo_machine"
 
 [auth]
 token_file = "~/.cous/opentracy_token"
@@ -171,6 +180,16 @@ Parâmetros relevantes:
 - `system_prompt.cache_ttl_seconds` — TTL do cache do system prompt (padrão 300s).
 - `knowledge.poll_timeout_seconds` — timeout do polling de jobs de indexação.
 
+Diagnóstico v3:
+
+- `opentracy.diagnosis_callback_endpoint` — URL que o worker do OpenTracy chama
+  ao concluir ou falhar um diagnóstico.
+- `opentracy.diagnosis_auto_resolve_identity` — quando `true`, o Cous tenta
+  resolver `domain_id`, `instance_id` e `capture_session_id` no OpenTracy antes
+  de enfileirar.
+- `opentracy.diagnosis_domain_id` e `opentracy.diagnosis_instance_id` — IDs já
+  conhecidos, usados quando a resolução automática estiver desligada.
+
 ## Execução
 
 ```bash
@@ -187,6 +206,54 @@ Parâmetros disponíveis:
   - usa clientes fake locais para chat, knowledge e medições;
   - não exige tokens nem OpenTracy ativo;
   - útil para validar UX do terminal e fluxo local.
+- `--callback-server`
+  - sobe o servidor HTTP local que recebe callbacks do worker de diagnóstico;
+  - use em um processo separado quando for rodar `/diagnostico`.
+
+Exemplo com callback:
+
+```bash
+# terminal 1
+uv run cous --callback-server --callback-port 8000
+
+# terminal 2
+uv run cous
+```
+
+## Diagnóstico v3
+
+O fluxo implementado é:
+
+```text
+Firmware/serial -> Cous medição local -> /diagnostico <id>
+  -> OpenTracy POST /v3/diagnosis
+  -> DiagnosisWorker consome diagnosis_queue
+  -> callback em /cous/diagnosis/callback
+  -> Cous atualiza .cous-data/measurements.json
+```
+
+Comandos:
+
+```bash
+/diagnostico <id>             # enfileira no OpenTracy
+/diagnostico status <id>      # consulta status remoto e resultado local
+/diagnostico resultado <id>   # alias semântico de status
+/medicao <id>                 # mostra detalhes e diagnóstico persistido
+/status                       # mostra Diagnosis API e se o worker está rodando
+```
+
+Smoke test operacional:
+
+```bash
+uv run python scripts/smoke_diagnosis.py
+```
+
+Esse comando não enfileira diagnóstico. Ele apenas verifica:
+
+- runtime do OpenTracy em `/health`;
+- diagnóstico em `/v3/diagnosis/status`;
+- callback server do COUS em `/cous/diagnosis/callback/status`;
+- configuração local de IDs ou resolução automática.
 
 ## Testes
 
@@ -311,11 +378,11 @@ Comandos:
   - envia sessões salvas para o runtime de medições do OpenTracy;
   - sem argumento, sincroniza as pendentes.
 - `/diagnostico [id]`
-  - prefere o backend remoto quando a sessão já tiver `remote_id`;
-  - cai para modo local se o runtime falhar;
+  - enfileira diagnóstico v3 no OpenTracy;
+  - exige IDs operacionais reais ou resolução automática configurada;
+  - acompanhe com `/diagnostico status <id>` ou `/medicao <id>`;
   - sem argumento, sugere a sessão mais recente.
 - `/laudo [id]`
-  - mesmo comportamento do diagnóstico;
   - prefere laudo remoto, com fallback local;
   - sem argumento, sugere a sessão mais recente.
 

@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from cous.measurements.analysis import build_chat_context, build_markdown_report, build_recent_summary, filter_sessions
+from cous.measurements.analysis import (
+    build_chat_context,
+    build_markdown_report,
+    build_recent_summary,
+    filter_sessions,
+)
+from cous.measurements.constants import DEFAULT_VERTICALS
 from cous.measurements.store import MeasurementLocalStore
 from cous.measurements.validation import validate_header, validate_snapshots
 
@@ -67,7 +74,11 @@ class MockKnowledgeClient:
 
     def status(self) -> dict[str, Any]:
         chunk_count = sum(int(item.get("chunk_count", 0)) for item in self._documents)
-        return {"status": "ready", "document_count": len(self._documents), "chunk_count": chunk_count}
+        return {
+            "status": "ready",
+            "document_count": len(self._documents),
+            "chunk_count": chunk_count,
+        }
 
     def validate(self, path: Path) -> dict[str, Any]:
         text = path.read_text(encoding="utf-8", errors="ignore")
@@ -95,7 +106,14 @@ class MockKnowledgeClient:
         return {"job_id": job_id}
 
     def get_job(self, job_id: str) -> dict[str, Any]:
-        return self._jobs.get(job_id, {"job_id": job_id, "status": "failed", "error": {"code": "job_not_found"}})
+        return self._jobs.get(
+            job_id,
+            {
+                "job_id": job_id,
+                "status": "failed",
+                "error": {"code": "job_not_found"},
+            },
+        )
 
     def list_documents(self) -> list[dict[str, Any]]:
         return deepcopy(self._documents)
@@ -104,10 +122,20 @@ class MockKnowledgeClient:
         terms = [item.strip().lower() for item in query.split() if item.strip()]
         results: list[dict[str, Any]] = []
         for document in self._documents:
-            haystack = " ".join(str(document.get(key) or "").lower() for key in ("id", "name", "path"))
+            haystack = " ".join(
+                str(document.get(key) or "").lower()
+                for key in ("id", "name", "path")
+            )
             score = sum(1 for term in terms if term in haystack) or (1 if not terms else 0)
             if score:
-                results.append({"document_id": document["id"], "title": document["name"], "score": score, "snippet": document["path"]})
+                results.append(
+                    {
+                        "document_id": document["id"],
+                        "title": document["name"],
+                        "score": score,
+                        "snippet": document["path"],
+                    }
+                )
         return results
 
     def delete_document(self, document_id: str) -> None:
@@ -158,7 +186,10 @@ class MockMeasurementsClient:
 
     def add_snapshots(self, session_id: str, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
         session = self.get_session(session_id)
-        valid, rejected = validate_snapshots(snapshots, allowed_types=set(session.get("header", {}).get("verticais") or []))
+        valid, rejected = validate_snapshots(
+            snapshots,
+            allowed_types=set(session.get("header", {}).get("verticais") or []),
+        )
         current = deepcopy(session.get("snapshots") or [])
         current.extend(valid)
         session["snapshots"] = current
@@ -167,7 +198,12 @@ class MockMeasurementsClient:
         session["invalid_snapshots"] = int(session.get("invalid_snapshots") or 0) + len(rejected)
         session["total_snapshots"] = session["valid_snapshots"] + session["invalid_snapshots"]
         updated = self._store.replace_session(session)
-        return {"accepted": len(valid), "rejected": len(rejected), "rejected_items": rejected, "session": updated}
+        return {
+            "accepted": len(valid),
+            "rejected": len(rejected),
+            "rejected_items": rejected,
+            "session": updated,
+        }
 
     def save_session(self, session_id: str) -> dict[str, Any]:
         session = self.get_session(session_id)
@@ -221,10 +257,12 @@ class MockMeasurementsClient:
             "synced_count": len(synced),
             "failed_count": len(failed),
         }
+
     def diagnose(self, session_id: str) -> dict[str, Any]:
         session = self.get_session(session_id)
         diagnostic = {
-            "approved": bool(session.get("valid_snapshots")) and not bool(session.get("invalid_snapshots")),
+            "approved": bool(session.get("valid_snapshots"))
+            and not bool(session.get("invalid_snapshots")),
             "summary": "Diagnostico mock baseado na coleta local.",
             "total_snapshots": int(session.get("total_snapshots") or 0),
             "valid_snapshots": int(session.get("valid_snapshots") or 0),
@@ -236,8 +274,38 @@ class MockMeasurementsClient:
         updated = self._store.replace_session(session)
         return {"session": updated, "diagnostic": diagnostic, "source": "mock"}
 
+    def diagnose_v3(self, session_id: str) -> dict[str, Any]:
+        session = self.get_session(session_id)
+        diagnostic = {
+            "correlation_id": f"mock_diag_{uuid4().hex[:12]}",
+            "status": "queued",
+            "evidence_count": int(session.get("valid_snapshots") or 0),
+            "snapshot_count": int(session.get("total_snapshots") or 0),
+        }
+        session["diagnosis_correlation_id"] = diagnostic["correlation_id"]
+        session["diagnosis_status"] = diagnostic["status"]
+        updated = self._store.replace_session(session)
+        return {"session": updated, "diagnostic": diagnostic, "source": "v3-mock"}
+
+    def refresh_diagnosis_status(self, session_id: str) -> dict[str, Any]:
+        session = self.get_session(session_id)
+        diagnostic = {
+            "correlation_id": session.get("diagnosis_correlation_id") or "",
+            "status": session.get("diagnosis_status") or "not_requested",
+        }
+        return {"session": session, "diagnostic": diagnostic, "source": "v3-mock"}
+
+    def diagnosis_runtime_status(self) -> dict[str, Any]:
+        return {
+            "enabled": True,
+            "database_configured": False,
+            "worker_enabled": True,
+            "worker_running": False,
+            "status": "mock",
+        }
+
     def report(self, session_id: str) -> dict[str, Any]:
-        diagnosed = self.diagnose(session_id)
+        self.diagnose(session_id)
         session = self.get_session(session_id)
         markdown = build_markdown_report(session)
         session["report_markdown"] = markdown

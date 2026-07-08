@@ -3,6 +3,13 @@ backend_url = "http://127.0.0.1:8002"
 runtime_url = "http://127.0.0.1:8001"
 agent_id = "cous"
 timeout = 30
+diagnosis_domain_id = ""
+diagnosis_instance_id = ""
+diagnosis_callback_endpoint = "http://localhost:8000/cous/diagnosis/callback"
+diagnosis_auto_resolve_identity = false
+diagnosis_domain_name = "tattoo_machines"
+diagnosis_domain_version = "v1"
+diagnosis_entity_type = "tattoo_machine"
 
 [auth]
 token_file = "~/.cous/opentracy_token"

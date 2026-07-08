@@ -6,14 +6,14 @@ import json
 import os
 import tempfile
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class MeasurementLocalStore:
@@ -108,6 +108,50 @@ class MeasurementLocalStore:
         self._save(data)
         return deepcopy(updated)
 
+    def apply_diagnosis_callback(
+        self,
+        correlation_id: str,
+        capture_session_id: str,
+        callback: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        self.invalidate_cache()
+        data = self._load()
+        target_index: int | None = None
+        correlation_id = str(correlation_id)
+        capture_session_id = str(capture_session_id)
+
+        for index, session in enumerate(data["sessions"]):
+            header = session.get("header") if isinstance(session.get("header"), dict) else {}
+            session_capture_id = (
+                session.get("capture_session_id")
+                or session.get("remote_capture_session_id")
+                or header.get("capture_session_id")
+            )
+            if str(session.get("diagnosis_correlation_id") or "") == correlation_id:
+                target_index = index
+                break
+            if capture_session_id and str(session_capture_id or "") == capture_session_id:
+                target_index = index
+                break
+
+        if target_index is None:
+            return None
+
+        updated = deepcopy(data["sessions"][target_index])
+        updated["diagnosis_correlation_id"] = correlation_id
+        updated["capture_session_id"] = capture_session_id
+        updated["diagnosis_status"] = "failed" if callback.get("error") else "completed"
+        updated["diagnosis_result"] = deepcopy(callback)
+        if callback.get("error"):
+            updated["diagnosis_error"] = str(callback["error"])
+        else:
+            updated.pop("diagnosis_error", None)
+        updated["diagnosis_completed_at"] = utc_now_iso()
+        updated["updated_at"] = utc_now_iso()
+        data["sessions"][target_index] = updated
+        self._save(data)
+        return deepcopy(updated)
+
     def delete_session(self, session_id: str) -> bool:
         data = self._load()
         remaining = [
@@ -166,7 +210,7 @@ class MeasurementLocalStore:
         self._dirty = False
 
     def _generate_id(self) -> str:
-        stamp = datetime.now(timezone.utc).strftime("med_%Y%m%d_%H%M%S")
+        stamp = datetime.now(UTC).strftime("med_%Y%m%d_%H%M%S")
         return f"{stamp}_{uuid4().hex[:6]}"
 
     def _without_snapshots(self, session: dict[str, Any]) -> dict[str, Any]:

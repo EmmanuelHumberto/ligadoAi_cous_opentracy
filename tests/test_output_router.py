@@ -1,10 +1,9 @@
 """Testes unitários para OutputRouter."""
 
-import pytest
 from unittest.mock import MagicMock
 
-from cous.cli.tui.output_router import OutputRouter
 from cous.cli.tui.events import InfoLine, TableData
+from cous.cli.tui.output_router import OutputRouter
 
 
 class TestOutputRouter:
@@ -101,7 +100,14 @@ class TestOutputRouter:
 
     def test_search_results(self):
         app, router = self._make_running()
-        results = [{"score": 1.0, "document_id": "abc123", "title": "Laudo #1", "text": "numero de serie 1212"}]
+        results = [
+            {
+                "score": 1.0,
+                "document_id": "abc123",
+                "title": "Laudo #1",
+                "text": "numero de serie 1212",
+            }
+        ]
         router.search_results(results)
         msg = app.post_message.call_args[0][0]
         assert isinstance(msg, TableData)
@@ -142,6 +148,16 @@ class TestOutputRouter:
             "id": "m1",
             "status": "saved",
             "header": {"fabricante": "FK", "modelo": "X1"},
+            "diagnosis_status": "completed",
+            "diagnosis_result": {
+                "hypotheses": [
+                    {
+                        "description": "Atrito elevado",
+                        "confidence": 0.8,
+                        "is_primary": True,
+                    }
+                ]
+            },
         }
         router.measurement_detail(session)
         msg = app.post_message.call_args[0][0]
@@ -151,6 +167,8 @@ class TestOutputRouter:
         # Busca "FK" nos valores das linhas
         found = any("FK" in str(cell) for row in msg.rows for cell in row)
         assert found
+        assert any("Diagnostico" in str(cell) for row in msg.rows for cell in row)
+        assert any("Atrito elevado" in str(cell) for row in msg.rows for cell in row)
 
     def test_clear(self):
         app, router = self._make_running()

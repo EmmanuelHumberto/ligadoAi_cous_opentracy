@@ -121,6 +121,8 @@ def _run_legacy(
         trace_emitter=trace_emitter,
         output_router=NullOutputRouter(),
     )
+    # Callback para comandos injetarem prompts no fluxo normal de chat
+    ctx.send_to_chat = lambda text: _send_chat(text, ctx)
     renderer.welcome(config.opentracy.agent_id)
     renderer.info(f"Sessao de chat atual: {session.session_id}")
     _log(ctx, "terminal_ready", session_id=session.session_id)

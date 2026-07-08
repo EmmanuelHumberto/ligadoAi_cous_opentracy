@@ -111,6 +111,10 @@ class CousApp(App):
         )
         self._command_router = build_router()
 
+        # Callback para comandos injetarem prompts no fluxo de chat (ex: /diagnostico)
+        self.ctx.send_to_chat = self._send_to_chat
+        self.ctx.post_assistant = self._post_assistant
+
         # OutputRouter — thread-safe após on_mount
         self.output_router = OutputRouter(self)
         self.ctx.output_router = self.output_router
@@ -167,6 +171,25 @@ class CousApp(App):
         self._do_chat(text)
 
     # ── Chat worker ─────────────────────────────────────────────────────
+
+    def _post_assistant(self, text: str) -> None:
+        """Exibe uma mensagem do assistente diretamente no chat, sem chamar LLM."""
+        self.call_from_thread(self._do_post_assistant, text)
+
+    def _do_post_assistant(self, text: str) -> None:
+        self.post_message(ChatResponse(text=text, trace_id="", token_count=0))
+
+    def _send_to_chat(self, text: str) -> None:
+        """Callback para comandos injetarem prompts no fluxo de chat (ex: /diagnostico)."""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._do_chat(text))
+        except RuntimeError:
+            # Worker thread — delegar para a thread do event loop
+            self.call_from_thread(self._do_chat, text)
+        except Exception:
+            pass  # não quebrar o comando se o chat falhar
 
     @work(exclusive=True)
     async def _do_chat(self, text: str) -> None:
