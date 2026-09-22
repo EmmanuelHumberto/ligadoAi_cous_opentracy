@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
@@ -9,14 +11,23 @@ from uuid import UUID
 
 from cous.auth import TokenProvider
 from cous.clients.base import AuthenticatedHttpClient
-from cous.config import OpenTracyConfig
+from cous.config import OpenTracyConfig, SystemOsConfig
+from cous.clients.systemos import SystemOsTelemetryClient
 from cous.measurements.analysis import (
+    append_opentracy_diagnosis,
     build_chat_context,
     build_markdown_report,
     build_recent_summary,
     filter_sessions,
 )
 from cous.measurements.constants import DEFAULT_VERTICALS
+from cous.measurements.electromechanical import (
+    CORRELATION_TYPE,
+    OBSERVATION_TYPE,
+    build_electromechanical_evidence,
+    build_local_diagnostic,
+    electromechanical_evidence_rating,
+)
 from cous.measurements.serial_capture import normalize_snapshot_type, normalize_verticals
 from cous.measurements.store import MeasurementLocalStore
 from cous.measurements.validation import validate_header, validate_snapshots
@@ -28,6 +39,7 @@ class MeasurementsClient:
         config: OpenTracyConfig,
         token_provider: TokenProvider,
         store: MeasurementLocalStore,
+        systemos_config: SystemOsConfig | None = None,
     ) -> None:
         self._http = AuthenticatedHttpClient(
             token_provider=token_provider,
@@ -36,6 +48,11 @@ class MeasurementsClient:
         self._runtime_url = config.runtime_url.rstrip("/")
         self._config = config
         self._store = store
+        self._systemos = (
+            SystemOsTelemetryClient(systemos_config)
+            if systemos_config is not None and systemos_config.enabled
+            else None
+        )
 
     def create_session(self, header: dict[str, Any]) -> dict[str, Any]:
         errors = validate_header(header)
@@ -116,14 +133,33 @@ class MeasurementsClient:
         return build_recent_summary(self._store.full_sessions())
 
     def sync_session(self, session_id: str) -> dict[str, Any]:
+        errors: list[str] = []
+        try:
+            self._sync_opentracy_session(session_id)
+        except Exception as exc:
+            errors.append(f"OpenTracy: {exc}")
+        try:
+            self.sync_systemos_session(session_id)
+        except Exception as exc:
+            errors.append(f"SystemOS: {exc}")
+        if errors:
+            raise RuntimeError("; ".join(errors))
+        return self.get_session(session_id)
+
+    def _sync_opentracy_session(self, session_id: str) -> dict[str, Any]:
         session = self.get_session(session_id)
         header = deepcopy(session.get("header") or {})
+        local_source_id = str(session.get("id") or session_id)
+        header["source_session_id"] = local_source_id
         remote_id = str(session.get("remote_id") or "")
         try:
             if remote_id:
                 remote_session = self._http.get(
                     f"{self._runtime_url}/measurements/sessions/{remote_id}"
                 )
+                remote_header = remote_session.get("header") or {}
+                if remote_header.get("source_session_id") != local_source_id:
+                    self._set_remote_source_identity(remote_id, local_source_id)
             else:
                 remote_session = self._http.post(
                     f"{self._runtime_url}/measurements/sessions",
@@ -132,10 +168,34 @@ class MeasurementsClient:
                 remote_id = str(remote_session.get("id") or "")
             snapshots = deepcopy(session.get("snapshots") or [])
             if snapshots:
-                self._http.post(
-                    f"{self._runtime_url}/measurements/sessions/{remote_id}/snapshots",
-                    {"snapshots": snapshots},
+                remote_snapshots = self._prepare_remote_snapshots(
+                    str(session.get("id") or session_id),
+                    snapshots,
                 )
+                ingestion = self._http.post(
+                    f"{self._runtime_url}/measurements/sessions/{remote_id}/snapshots",
+                    {"snapshots": remote_snapshots},
+                )
+                accepted = int(ingestion.get("accepted") or 0)
+                rejected = int(ingestion.get("rejected") or 0)
+                duplicates = int(ingestion.get("duplicates") or 0)
+                accounted = accepted + rejected + duplicates
+                if rejected:
+                    details = ingestion.get("errors") or []
+                    raise RuntimeError(
+                        f"OpenTracy rejected {rejected} of {len(snapshots)} snapshots: "
+                        f"{details}"
+                    )
+                if accounted != len(snapshots):
+                    raise RuntimeError(
+                        "OpenTracy returned an incomplete ingestion receipt: "
+                        f"expected={len(snapshots)} accounted={accounted}"
+                    )
+                session["sync_receipt"] = {
+                    "accepted": accepted,
+                    "rejected": rejected,
+                    "duplicates": duplicates,
+                }
             session["remote_id"] = remote_id
             session["sync_status"] = "synced"
             session["last_sync_error"] = ""
@@ -145,6 +205,42 @@ class MeasurementsClient:
             session["last_sync_error"] = str(exc)
             self._store.replace_session(session)
             raise
+
+    def sync_systemos_session(self, session_id: str) -> dict[str, Any]:
+        session = self.get_session(session_id)
+        if self._systemos is None:
+            return session
+        try:
+            receipt = self._systemos.sync_session(session)
+            session["systemos_sync_status"] = "synced"
+            session["systemos_sync_receipt"] = receipt
+            session["last_systemos_sync_error"] = ""
+            return self._store.replace_session(session)
+        except Exception as exc:
+            session["systemos_sync_status"] = "sync_failed"
+            session["last_systemos_sync_error"] = str(exc)
+            self._store.replace_session(session)
+            raise
+
+    def _prepare_remote_snapshots(
+        self,
+        session_id: str,
+        snapshots: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        prepared: list[dict[str, Any]] = []
+        for snapshot in snapshots:
+            item = deepcopy(snapshot)
+            canonical = json.dumps(
+                item,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            item["event_id"] = f"tma:{session_id}:{digest}"
+            prepared.append(item)
+        return prepared
 
     def sync_pending_sessions(
         self,
@@ -167,7 +263,13 @@ class MeasurementsClient:
         candidates = [
             session for session in self._store.full_sessions()
             if str(session.get("status") or "") in {"saved", "diagnosed", "reported"}
-            and str(session.get("sync_status") or "") != "synced"
+            and (
+                str(session.get("sync_status") or "") != "synced"
+                or (
+                    self._systemos is not None
+                    and str(session.get("systemos_sync_status") or "") != "synced"
+                )
+            )
         ]
 
         synced: list[dict[str, Any]] = []
@@ -231,6 +333,10 @@ class MeasurementsClient:
             return self._report_local(session_id)
         updated = self._merge_remote_session(session_id, result.get("session") or {})
         markdown = str(result.get("markdown") or updated.get("report_markdown") or "")
+        markdown = append_opentracy_diagnosis(markdown, updated)
+        if markdown != updated.get("report_markdown"):
+            updated["report_markdown"] = markdown
+            updated = self._store.replace_session(updated)
         return {"markdown": markdown, "session": updated, "source": "remote"}
 
     def diagnose_v3(self, session_id: str) -> dict[str, Any]:
@@ -250,6 +356,17 @@ class MeasurementsClient:
         session = self.get_session(session_id)
         header = session.get("header") or {}
         snapshots = session.get("snapshots") or []
+        local_diagnostic = build_local_diagnostic(
+            snapshots,
+            valid_snapshots=int(session.get("valid_snapshots") or 0),
+            invalid_snapshots=int(session.get("invalid_snapshots") or 0),
+        )
+        local_diagnostic["header"] = deepcopy(header)
+        local_diagnostic["type_counts"] = deepcopy(
+            session.get("snapshots_by_type") or {}
+        )
+        session["diagnostic"] = local_diagnostic
+        session = self._store.replace_session(session)
 
         # Montar evidence_set a partir dos snapshots
         # Agrupar por tipo e extrair métricas relevantes
@@ -260,15 +377,44 @@ class MeasurementsClient:
             snap_by_type.setdefault(t, []).append(snap)
 
         for snap_type, snaps in snap_by_type.items():
+            evidence_data = self._build_evidence_data(snap_type, snaps)
+            if snap_type in {OBSERVATION_TYPE, CORRELATION_TYPE}:
+                evidence_strength, confidence = electromechanical_evidence_rating(
+                    snap_type,
+                    evidence_data,
+                )
+            else:
+                evidence_strength = "moderate" if len(snaps) > 50 else "weak"
+                confidence = min(len(snaps) / 200.0, 1.0)
             evidence = EvidenceItemSchema(
                 evidence_id=uuid4(),
                 evidence_type="physical",
-                evidence_strength="moderate" if len(snaps) > 50 else "weak",
+                evidence_strength=evidence_strength,
                 source_reference=f"capture:{session_id}:{snap_type}",
-                confidence=min(len(snaps) / 200.0, 1.0),
-                data=self._build_evidence_data(snap_type, snaps),
+                confidence=confidence,
+                data=evidence_data,
             )
             evidence_items.append(evidence)
+
+        service_order_number = str(header.get("ordem_servico") or "").strip()
+        equipment_serial_number = str(header.get("numero_serie") or "").strip()
+        measurement_observations = str(header.get("observacoes") or "").strip()
+        evidence_items.append(
+            EvidenceItemSchema(
+                evidence_id=uuid4(),
+                evidence_type="service_order_context",
+                evidence_strength="weak",
+                source_reference=f"service-order:{service_order_number}",
+                confidence=0.35 if measurement_observations else 0.2,
+                data={
+                    "type": "service_order_context",
+                    "service_order_number": service_order_number or None,
+                    "equipment_serial_number": equipment_serial_number,
+                    "observations": measurement_observations,
+                    "epistemic_role": "reported_context",
+                },
+            )
+        )
 
         correlation_id = uuid4()
         ids, missing_ids = self._resolve_diagnosis_ids(session)
@@ -280,29 +426,47 @@ class MeasurementsClient:
                 session["diagnosis_v3_identity_error"] = str(exc)
 
         if missing_ids:
-            result = {
-                "status": "local_fallback",
-                "error": (
-                    "Diagnostico v3 requer IDs reais: "
-                    + ", ".join(missing_ids)
-                ),
-            }
+            error = "Diagnostico v3 requer IDs reais: " + ", ".join(missing_ids)
             session["diagnosis_correlation_id"] = str(correlation_id)
-            session["diagnosis_status"] = result["status"]
-            session["diagnosis_v3_error"] = result["error"]
+            session["diagnosis_status"] = "local_fallback"
+            session["diagnosis_v3_error"] = error
             updated = self._store.replace_session(session)
-            return {
-                "session": updated,
-                "diagnostic": {
+            diagnostic = deepcopy(local_diagnostic)
+            diagnostic.update(
+                {
                     "correlation_id": str(correlation_id),
-                    "status": result["status"],
-                    "error": result["error"],
+                    "queue_status": "local_fallback",
+                    "error": error,
                     "evidence_count": len(evidence_items),
                     "snapshot_types": list(snap_by_type.keys()),
                     "snapshot_count": len(snapshots),
-                },
-                "source": "v3-not-enqueued",
+                }
+            )
+            return {
+                "session": updated,
+                "diagnostic": diagnostic,
+                "source": "v3-local-fallback",
             }
+
+        try:
+            session = self._synchronize_capture_projection(
+                session,
+                ids["capture_session_id"],
+            )
+        except Exception as exc:
+            session = self.get_session(session_id)
+            session["capture_projection_status"] = "failed"
+            session["capture_projection_error"] = str(exc)
+            session = self._store.replace_session(session)
+
+        if service_order_number:
+            reported_problem = (
+                f"OS {service_order_number}: {measurement_observations}"
+                if measurement_observations
+                else f"OS {service_order_number}"
+            )
+        else:
+            reported_problem = measurement_observations or None
 
         payload = DiagnosisRequestPayload(
             correlation_id=correlation_id,
@@ -313,10 +477,13 @@ class MeasurementsClient:
             callback_endpoint=self._config.diagnosis_callback_endpoint,
             evidence_set=evidence_items,
             context=DiagnosisContextSchema(
-                reported_problem=header.get("observacoes"),
+                service_order_number=service_order_number or None,
+                equipment_serial_number=equipment_serial_number or None,
+                measurement_observations=measurement_observations or None,
+                reported_problem=reported_problem,
                 instance_history_summary=(
                     f"{header.get('fabricante','?')} {header.get('modelo','?')} "
-                    f"— {len(snapshots)} snapshots"
+                    f"— serie {equipment_serial_number}; {len(snapshots)} snapshots"
                 ),
             ),
         )
@@ -328,8 +495,28 @@ class MeasurementsClient:
             result = diag.request_diagnosis(payload)
             source = "v3-remote"
         except Exception as e:
-            result = {"status": "local_fallback", "error": str(e)}
-            source = "v3-not-enqueued"
+            error = str(e)
+            session["diagnosis_correlation_id"] = str(correlation_id)
+            session["diagnosis_status"] = "local_fallback"
+            session["diagnosis_v3_payload"] = payload.model_dump(mode="json")
+            session["diagnosis_v3_error"] = error
+            updated = self._store.replace_session(session)
+            diagnostic = deepcopy(local_diagnostic)
+            diagnostic.update(
+                {
+                    "correlation_id": str(correlation_id),
+                    "queue_status": "local_fallback",
+                    "error": error,
+                    "evidence_count": len(evidence_items),
+                    "snapshot_types": list(snap_by_type.keys()),
+                    "snapshot_count": len(snapshots),
+                }
+            )
+            return {
+                "session": updated,
+                "diagnostic": diagnostic,
+                "source": "v3-local-fallback",
+            }
 
         # Armazenar correlation_id na sessão
         session["diagnosis_correlation_id"] = str(correlation_id)
@@ -340,12 +527,13 @@ class MeasurementsClient:
         session.pop("diagnosis_attempts", None)
         session.pop("diagnosis_last_attempt_at", None)
         session.pop("diagnosis_queue_status", None)
+        session.pop("diagnosis_callback_status", None)
+        session.pop("diagnosis_callback_attempts", None)
+        session.pop("diagnosis_callback_error", None)
         if source == "v3-remote":
             session.pop("diagnosis_error", None)
             session.pop("diagnosis_v3_error", None)
             session.pop("diagnosis_v3_identity_error", None)
-        elif result.get("error"):
-            session["diagnosis_error"] = str(result["error"])
         updated = self._store.replace_session(session)
 
         return {
@@ -404,6 +592,16 @@ class MeasurementsClient:
             session["diagnosis_last_attempt_at"] = str(result["last_attempt_at"])
         if result.get("error_message"):
             session["diagnosis_error"] = str(result["error_message"])
+        if result.get("callback_status"):
+            session["diagnosis_callback_status"] = str(result["callback_status"])
+        if result.get("callback_attempts") is not None:
+            session["diagnosis_callback_attempts"] = int(
+                result.get("callback_attempts") or 0
+            )
+        if result.get("callback_error"):
+            session["diagnosis_callback_error"] = str(result["callback_error"])
+        elif result.get("callback_status") == "delivered":
+            session.pop("diagnosis_callback_error", None)
 
         updated = self._store.replace_session(session)
         return {
@@ -423,6 +621,8 @@ class MeasurementsClient:
         snap_type: str,
         snaps: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        if snap_type in {OBSERVATION_TYPE, CORRELATION_TYPE}:
+            return build_electromechanical_evidence(snap_type, snaps)
         data: dict[str, Any] = {
             "type": snap_type,
             "count": len(snaps),
@@ -446,6 +646,23 @@ class MeasurementsClient:
         return data
 
     def _is_valid_numeric_sample(self, snap: dict[str, Any], key: str) -> bool:
+        unavailable_mechanical_fields = {
+            "stroke_inertial_torque_uNm",
+            "required_torque_uNm",
+            "torque_load_permille",
+            "mechanical_equivalent_load_permille",
+            "required_mechanical_power_mw",
+            "drive_loss_permille",
+            "mechanical_x_out_um",
+            "mechanical_v_out_um_s",
+            "mechanical_a_out_um_s2",
+            "cartridge_preload_compression_um",
+            "cartridge_dynamic_compression_um",
+            "cartridge_compression_um",
+            "cartridge_torque_envelope_uNm",
+        }
+        if key in unavailable_mechanical_fields:
+            return False
         valid_keys = [f"{key}_valid"]
         suffixes = (
             "_permille",
@@ -525,6 +742,8 @@ class MeasurementsClient:
                 or session.get("id")
                 or "unknown"
             ),
+            "service_order_number": str(header.get("ordem_servico") or ""),
+            "measurement_observations": str(header.get("observacoes") or ""),
             "operator_name": str(header.get("tecnico") or ""),
         }
         result = self._http.post(
@@ -538,27 +757,53 @@ class MeasurementsClient:
             "instance_id",
             "operational_session_id",
             "capture_session_id",
+            "service_order_document_id",
         ):
             if result.get(key):
                 updated[key] = str(result[key])
         return self._store.replace_session(updated)
 
+    def _synchronize_capture_projection(
+        self,
+        session: dict[str, Any],
+        capture_session_id: UUID,
+    ) -> dict[str, Any]:
+        local_id = str(session.get("id") or "")
+        if not session.get("remote_id") or session.get("sync_status") != "synced":
+            session = self.sync_session(local_id)
+        remote_id = str(session.get("remote_id") or "")
+        if not remote_id:
+            raise RuntimeError("measurement synchronization returned no remote_id")
+        self._set_remote_source_identity(remote_id, local_id)
+        receipt = self._http.post(
+            f"{self._runtime_url}/measurements/sessions/{remote_id}/capture-link",
+            {"capture_session_id": str(capture_session_id)},
+        )
+        updated = self.get_session(local_id)
+        updated["capture_projection_status"] = "projected"
+        updated["capture_projection_receipt"] = deepcopy(receipt)
+        updated.pop("capture_projection_error", None)
+        return self._store.replace_session(updated)
+
+    def _set_remote_source_identity(
+        self,
+        remote_id: str,
+        source_session_id: str,
+    ) -> None:
+        self._http.put(
+            f"{self._runtime_url}/measurements/sessions/{remote_id}/source-identity",
+            {"source_session_id": source_session_id},
+        )
+
     def _diagnose_local(self, session_id: str) -> dict[str, Any]:
         session = self.get_session(session_id)
-        diagnostic = {
-            "approved": bool(session.get("valid_snapshots"))
-            and not bool(session.get("invalid_snapshots")),
-            "summary": (
-                "Coleta valida para analise tecnica inicial."
-                if session.get("valid_snapshots")
-                else "Nenhum snapshot valido foi coletado."
-            ),
-            "total_snapshots": int(session.get("total_snapshots") or 0),
-            "valid_snapshots": int(session.get("valid_snapshots") or 0),
-            "invalid_snapshots": int(session.get("invalid_snapshots") or 0),
-            "header": deepcopy(session.get("header") or {}),
-            "type_counts": deepcopy(session.get("snapshots_by_type") or {}),
-        }
+        diagnostic = build_local_diagnostic(
+            session.get("snapshots") or [],
+            valid_snapshots=int(session.get("valid_snapshots") or 0),
+            invalid_snapshots=int(session.get("invalid_snapshots") or 0),
+        )
+        diagnostic["header"] = deepcopy(session.get("header") or {})
+        diagnostic["type_counts"] = deepcopy(session.get("snapshots_by_type") or {})
         session["diagnostic"] = diagnostic
         session["status"] = "diagnosed"
         updated = self._store.replace_session(session)
@@ -623,3 +868,5 @@ class MeasurementsClient:
 
     def close(self) -> None:
         self._http.close()
+        if self._systemos is not None:
+            self._systemos.close()

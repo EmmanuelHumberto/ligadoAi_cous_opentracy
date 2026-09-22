@@ -48,12 +48,13 @@ def test_format_validation_errors_uses_error_codes():
 
 def test_parse_measurement_header_args_preserves_technical_fields():
     header = _parse_measurement_header_args(
-        'fabricante="FK Irons" modelo=Flux serie=SN123 '
+        'os=1063 fabricante="FK Irons" modelo=Flux serie=SN123 '
         'transmissao=direct tipo_motor=brushless curso=3.5 '
         'coleta=calibracao porta=/dev/ttyACM0 verticais=hall,power sem_serial=sim'
     )
 
     assert header["fabricante"] == "FK Irons"
+    assert header["ordem_servico"] == "1063"
     assert header["modelo"] == "Flux"
     assert header["numero_serie"] == "SN123"
     assert header["sistema_transmissao"] == "direct"
@@ -109,6 +110,8 @@ def test_diagnostico_command_enqueues_remote_diagnosis(make_context, monkeypatch
     ctx = make_context()
     session = ctx.measurements.create_session(
         {
+            "ordem_servico": "OS-TEST",
+            "numero_serie": "SN-TEST",
             "fabricante": "DKLAB",
             "modelo": "W1PRO",
             "tipo_coleta": "desempenho",
@@ -152,6 +155,8 @@ def test_diagnostico_status_warns_when_no_result(make_context, monkeypatch):
     ctx = make_context()
     session = ctx.measurements.create_session(
         {
+            "ordem_servico": "OS-TEST",
+            "numero_serie": "SN-TEST",
             "fabricante": "DKLAB",
             "modelo": "W1PRO",
             "tipo_coleta": "desempenho",
@@ -176,6 +181,8 @@ def test_diagnostico_status_renders_persisted_result(make_context, monkeypatch):
     ctx = make_context()
     session = ctx.measurements.create_session(
         {
+            "ordem_servico": "OS-TEST",
+            "numero_serie": "SN-TEST",
             "fabricante": "DKLAB",
             "modelo": "W1PRO",
             "tipo_coleta": "desempenho",
@@ -211,6 +218,8 @@ def test_diagnostico_status_refreshes_remote_queue_status(make_context, monkeypa
     ctx = make_context()
     session = ctx.measurements.create_session(
         {
+            "ordem_servico": "OS-TEST",
+            "numero_serie": "SN-TEST",
             "fabricante": "DKLAB",
             "modelo": "W1PRO",
             "tipo_coleta": "desempenho",

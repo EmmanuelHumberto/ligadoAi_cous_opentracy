@@ -5,6 +5,7 @@ from __future__ import annotations
 from statistics import mean
 from typing import Any
 
+from cous.measurements.electromechanical import summarize_electromechanical
 from cous.measurements.serial_capture import normalize_snapshot_type
 
 
@@ -62,6 +63,7 @@ def summarize_session(session: dict[str, Any]) -> dict[str, Any]:
         "power": _summarize_power(by_type.get("power", [])),
         "vibration": _summarize_vibration(by_type.get("vibration", [])),
         "course": _summarize_course(by_type.get("course", [])),
+        "electromechanical": summarize_electromechanical(snapshots),
         "snapshots_by_type": session.get("snapshots_by_type") or {},
         "observacoes": header.get("observacoes") or "",
         "tecnico": header.get("tecnico") or "",
@@ -109,6 +111,15 @@ def build_chat_context(query: str, sessions: list[dict[str, Any]]) -> str:
                 "vibration="
                 f"rms_media={_fmt(vibration.get('rms_norm_mg_avg'))}mg "
                 f"pico_max={_fmt(vibration.get('peak_norm_mg_max'))}mg"
+            )
+        electromechanical = summary["electromechanical"]
+        if electromechanical:
+            modes = electromechanical.get("persistent_modes") or []
+            lines.append(
+                "correlation="
+                f"frames={electromechanical.get('correlation_count', 0)} "
+                f"aderencia={_fmt(electromechanical.get('global_adherence_permille'))}permille "
+                f"hipoteses_persistentes={','.join(mode['id'] for mode in modes) or 'nenhuma'}"
             )
         if summary.get("observacoes"):
             lines.append(f"observacoes={summary['observacoes']}")
@@ -159,7 +170,73 @@ def build_markdown_report(session: dict[str, Any]) -> str:
                 f"- Vibracao: {vibration['count']} snapshots",
                 f"- RMS medio: {_fmt(vibration.get('rms_norm_mg_avg'))} mg",
                 f"- Pico maximo: {_fmt(vibration.get('peak_norm_mg_max'))} mg",
-                f"- Frequencia dominante media: {_fmt(vibration.get('dominant_frequency_hz_avg'))} Hz",
+                (
+                    "- Frequencia dominante media: "
+                    f"{_fmt(vibration.get('dominant_frequency_hz_avg'))} Hz"
+                ),
+            ]
+        )
+    electromechanical = summary["electromechanical"]
+    if electromechanical:
+        lines.extend(
+            [
+                "",
+                "## Correlacao eletromecanica",
+                (
+                    "- Frames: "
+                    f"{electromechanical.get('correlation_count', 0)} de correlacao; "
+                    f"{electromechanical.get('observation_count', 0)} de observacao"
+                ),
+                (
+                    "- Aderencia global media: "
+                    f"{_fmt(electromechanical.get('global_adherence_permille'))} permille"
+                ),
+                (
+                    "- Fechamento completo: "
+                    f"{_fmt_percent(electromechanical.get('closure_complete_ratio'))}"
+                ),
+                (
+                    "- Relacoes truncadas: "
+                    f"{'sim' if electromechanical.get('relations_truncated') else 'nao'}"
+                ),
+                "",
+                "## Hipoteses de falha do firmware",
+            ]
+        )
+        modes = [
+            mode
+            for mode in electromechanical.get("modes") or []
+            if mode.get("active_frames", 0) > 0
+        ]
+        if not modes:
+            lines.append("- Nenhuma hipotese ativa observada.")
+        for mode in modes:
+            temporal = (
+                "persistente"
+                if mode.get("persistent")
+                else "transitoria; requer nova observacao"
+            )
+            lines.extend(
+                [
+                    (
+                        f"- {mode.get('label')}: {mode.get('assessment')}; "
+                        f"{temporal}; ativa em {mode.get('active_frames', 0)} frame(s); "
+                        f"estado atual "
+                        f"{'ativo' if mode.get('active_now') else 'inativo'}; "
+                        f"confianca maxima {mode.get('confidence_permille_max', 0)} permille."
+                    ),
+                    f"- Evidencias: {mode.get('source_channels') or '-'}.",
+                    f"- Limitacao: {mode.get('limitation') or '-'}.",
+                ]
+            )
+        lines.extend(
+            [
+                "",
+                (
+                    "> As classificacoes acima sao hipoteses emitidas pelo firmware e "
+                    "consolidadas temporalmente pelo COUS. Nao constituem confirmacao "
+                    "independente da causa da falha."
+                ),
             ]
         )
     lines.extend(
@@ -170,6 +247,62 @@ def build_markdown_report(session: dict[str, Any]) -> str:
             f"- Observacoes: {summary.get('observacoes') or '-'}",
         ]
     )
+    return append_opentracy_diagnosis("\n".join(lines), session)
+
+
+def append_opentracy_diagnosis(markdown: str, session: dict[str, Any]) -> str:
+    """Append the persisted remote result without replacing physical evidence."""
+    if "## Diagnostico OpenTracy" in markdown:
+        return markdown
+    result = session.get("diagnosis_result")
+    if not isinstance(result, dict):
+        return markdown
+    correlation_id = str(session.get("diagnosis_correlation_id") or "")
+    result_correlation_id = str(result.get("correlation_id") or "")
+    if correlation_id and result_correlation_id and correlation_id != result_correlation_id:
+        return markdown
+
+    hypotheses = [
+        item
+        for item in result.get("hypotheses") or []
+        if isinstance(item, dict)
+    ]
+    explanation = result.get("explanation")
+    if not hypotheses and not isinstance(explanation, dict):
+        return markdown
+
+    lines = [markdown, "", "## Diagnostico OpenTracy"]
+    for hypothesis in hypotheses:
+        primary = "principal" if hypothesis.get("is_primary") else "secundaria"
+        confidence = _fmt_percent(hypothesis.get("confidence"))
+        lines.append(
+            f"- Hipotese {primary}: {hypothesis.get('description') or '-'} "
+            f"(confianca {confidence})."
+        )
+        if hypothesis.get("diagnostic_kind"):
+            lines.append(f"- Modo: {hypothesis['diagnostic_kind']}.")
+        if hypothesis.get("source") == "firmware_mode_correlation":
+            lines.append("- Origem: modo do firmware correlacionado pelo OpenTracy.")
+        corroborating = hypothesis.get("corroborating_knowledge_units")
+        if isinstance(corroborating, list):
+            lines.append(
+                f"- Unidades de conhecimento corroborantes: {len(corroborating)}."
+            )
+        limitations = hypothesis.get("limitations")
+        if isinstance(limitations, list) and limitations:
+            lines.append(
+                "- Limitacoes: "
+                + "; ".join(str(item) for item in limitations if str(item).strip())
+                + "."
+            )
+    if isinstance(explanation, dict) and explanation.get("narrative"):
+        lines.extend(
+            [
+                "",
+                "### Explicacao",
+                str(explanation["narrative"]),
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -337,6 +470,12 @@ def _fmt(value: object) -> str:
     if isinstance(value, float):
         return f"{value:.2f}"
     return str(value)
+
+
+def _fmt_percent(value: object) -> str:
+    if not isinstance(value, int | float):
+        return "-"
+    return f"{float(value) * 100:.1f}%"
 
 
 def index_measurement_session(session: dict[str, Any]) -> tuple[str, dict[str, Any]]:

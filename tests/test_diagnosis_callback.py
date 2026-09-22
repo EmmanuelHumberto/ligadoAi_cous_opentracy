@@ -42,6 +42,13 @@ def test_callback_handler_persists_completed_result(tmp_path):
                     "description": "Atrito elevado no conjunto rotativo.",
                     "confidence": 0.82,
                     "is_primary": True,
+                    "source": "firmware_mode_correlation",
+                    "diagnostic_kind": "locked_rotor_hypothesis",
+                    "active_now": True,
+                    "limitations": ["confirmar por inspecao"],
+                    "corroborating_knowledge_units": [
+                        "00000000-0000-0000-0000-000000000005"
+                    ],
                 }
             ],
             explanation={
@@ -56,6 +63,13 @@ def test_callback_handler_persists_completed_result(tmp_path):
     assert updated["diagnosis_status"] == "completed"
     assert updated["diagnosis_result"]["trace_id"] == str(TRACE_ID)
     assert updated["diagnosis_result"]["hypotheses"][0]["is_primary"] is True
+    assert (
+        updated["diagnosis_result"]["hypotheses"][0]["diagnostic_kind"]
+        == "locked_rotor_hypothesis"
+    )
+    assert updated["diagnosis_result"]["hypotheses"][0][
+        "corroborating_knowledge_units"
+    ] == ["00000000-0000-0000-0000-000000000005"]
     assert "diagnosis_error" not in updated
     assert handler.get_result(CORRELATION_ID) is not None
 

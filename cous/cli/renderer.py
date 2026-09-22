@@ -139,6 +139,7 @@ def measurement_detail(session: dict) -> None:
     rows = [
         ("ID", str(session.get("id") or "-")),
         ("Status", str(session.get("status") or "-")),
+        ("Ordem de servico", str(header.get("ordem_servico") or "-")),
         ("Fabricante", str(header.get("fabricante") or "-")),
         ("Modelo", str(header.get("modelo") or "-")),
         ("Serie", str(header.get("numero_serie") or "-")),

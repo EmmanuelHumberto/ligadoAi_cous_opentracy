@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from cous.measurements.constants import DEFAULT_VERTICALS
+from cous.measurements.electromechanical import validate_aggregate_frame
 from cous.measurements.serial_capture import normalize_snapshot_type
 
 
@@ -12,6 +13,10 @@ def validate_header(header: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     tipo_coleta = str(header.get("tipo_coleta") or "").strip().lower()
     verticais = header.get("verticais") or []
+    if not str(header.get("ordem_servico") or "").strip():
+        errors.append("ordem_servico obrigatoria")
+    if not str(header.get("numero_serie") or "").strip():
+        errors.append("numero_serie obrigatorio")
     if not tipo_coleta:
         errors.append("tipo_coleta obrigatorio")
     if tipo_coleta in {"reparo", "pos-reparo"} and not str(
@@ -89,4 +94,5 @@ def _validate_snapshot(snapshot: dict[str, Any], allowed_types: set[str]) -> lis
             errors.append("timestamp_us invalido")
     if len(snapshot) <= 1:
         errors.append("snapshot sem payload util")
+    errors.extend(validate_aggregate_frame(snapshot))
     return errors

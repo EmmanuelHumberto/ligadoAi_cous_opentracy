@@ -21,7 +21,13 @@ class ClientError(Exception):
 
 
 class AuthenticatedHttpClient:
-    def __init__(self, *, token_provider: TokenProvider, timeout: int, retries: int = _DEFAULT_RETRIES) -> None:
+    def __init__(
+        self,
+        *,
+        token_provider: TokenProvider,
+        timeout: int,
+        retries: int = _DEFAULT_RETRIES,
+    ) -> None:
         self._token_provider = token_provider
         self._http = httpx.Client(timeout=httpx.Timeout(timeout))
         self._retries = retries
@@ -30,8 +36,21 @@ class AuthenticatedHttpClient:
         response = self._request("GET", url)
         return _json_object(response)
 
-    def post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
-        response = self._request("POST", url, json=payload)
+    def post(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        *,
+        timeout: int | None = None,
+    ) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {"json": payload}
+        if timeout is not None:
+            kwargs["timeout"] = httpx.Timeout(timeout)
+        response = self._request("POST", url, **kwargs)
+        return _json_object(response)
+
+    def put(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        response = self._request("PUT", url, json=payload)
         return _json_object(response)
 
     def delete(self, url: str) -> None:
@@ -68,7 +87,11 @@ class AuthenticatedHttpClient:
                 raise ClientError("Token valido, mas sem permissao para esta acao", status_code=403)
 
             # Retry apenas para GET com 5xx transitórios
-            if method == "GET" and response.status_code in _RETRYABLE_STATUS and attempt < max_attempts - 1:
+            if (
+                method == "GET"
+                and response.status_code in _RETRYABLE_STATUS
+                and attempt < max_attempts - 1
+            ):
                 _time.sleep(_RETRY_BASE_SECONDS * (2 ** attempt))
                 continue
 

@@ -428,28 +428,59 @@ def _extract_measurement_fields(text: str, extra: dict) -> None:
 
 def _extract_service_order_fields(text: str, extra: dict) -> None:
     """Campos de ordem de serviço. Layout de formulário com valores em colunas."""
+    extra["service_order_number"] = _extract_value(
+        r"ordem\s+de\s+servi[çc]o\s*(?:n[º°o]\s*)?[:#-]*\s*([\w.-]+)",
+        text,
+    )
     # Marca/modelo em layout de colunas: label na linha N, valor na linha N+1
     # Linha típica: "EQUIPAMENTO:    MARCA:    MODELO:"
     # Linha seguinte:"Pen            DKLAB     W1"
-    extra["equipment_brand"] = _extract_value(r"marca:[^\n]*\n\s*\S+\s+(\S+)", text)
+    extra["equipment_brand"] = _extract_value(
+        r"(?m)^[ \t]*(?:[-*][ \t]+)?marca[ \t]*:[ \t]*([^\r\n]+)",
+        text,
+    )
     if not extra["equipment_brand"]:
-        extra["equipment_brand"] = _extract_value(r"marca[:\s]+(\S+)", text)
+        extra["equipment_brand"] = _extract_value(
+            r"marca:[^\n]*\n\s*\S+\s+(\S+)",
+            text,
+        )
     # Modelo
-    extra["equipment_model"] = _extract_value(r"modelo:[^\n]*\n\s*(?:\S+\s+){2}(\S+)", text)
+    extra["equipment_model"] = _extract_value(
+        r"(?m)^[ \t]*(?:[-*][ \t]+)?modelo[ \t]*:[ \t]*([^\r\n]+)",
+        text,
+    )
     if not extra["equipment_model"]:
-        extra["equipment_model"] = _extract_value(r"modelo[:\s]+(\S+)", text)
+        extra["equipment_model"] = _extract_value(
+            r"modelo:[^\n]*\n\s*(?:\S+\s+){2}(\S+)",
+            text,
+        )
     # Número de série
-    extra["equipment_serial"] = _extract_value(
-        r"(?:n[º°]\s*(?:de|do)?\s*(?:s[ée]rie|serial)|s[ée]rie)[:\s]+([\w\d-]+)", text
+    extra["equipment_serial"] = _clean_serial(
+        _extract_value(
+            r"(?:n[º°]\s*(?:de|do)?\s*(?:s[ée]rie|serial)|"
+            r"n[uú]mero\s+de\s+s[ée]rie|s[ée]rie)"
+            r"\s*:[ \t]*([^\r\n]+)",
+            text,
+        )
     )
     # Data
-    extra["service_date"] = _extract_value(r"data\s*(?:de|da)?\s*(?:entrada)?[:\s]+(\d{2}/\d{2}/\d{4})", text)
+    extra["service_date"] = _extract_value(
+        r"data\s*(?:de|da)?\s*(?:entrada)?[ \t]*:[ \t]*"
+        r"(\d{2}/\d{2}/\d{4})",
+        text,
+    )
     # Técnico: nome na linha após "TÉCNICO RESPONSÁVEL:"
     extra["technician"] = _extract_value(
-        r"t[ée]cnico\s*respons[áa]vel:[^\n]*\n\s*(\S+(?:\s+\S+){1,3})", text
+        r"(?m)^[ \t]*(?:[-*][ \t]+)?t[ée]cnico\s*respons[áa]vel"
+        r"[ \t]*:[ \t]*([^\r\n]+)",
+        text,
     )
     if not extra["technician"]:
-        extra["technician"] = _extract_value(r"t[ée]cnico[:\s]+(\S+(?:\s+\S+){1,3})", text)
+        extra["technician"] = _extract_value(
+            r"t[ée]cnico\s*respons[áa]vel:[^\n]*\n"
+            r"\s*(\S+(?:[ \t]+\S+){1,3})",
+            text,
+        )
     # Problema relatado (DEFEITO RELATADO)
     extra["symptoms"] = _extract_section(
         text, r"(?:defeito\s*relatado|problema\s*relatado|sintoma|reclamacao)[:\s]*"
@@ -1069,3 +1100,21 @@ def _extract_number(pattern: str, text: str) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def _clean_serial(value: str | None) -> str | None:
+    """Remove colunas adjacentes (COR) e espaços em excesso do serial.
+
+    O formulário de OS traz ``N° DE SÉRIE: <serial>   COR: <cor>`` na mesma
+    linha, separando colunas por múltiplos espaços. Mantém espaços simples
+    legítimos (ex.: ``EP10757 040523``) e descarta o sufixo da coluna COR.
+    """
+    if not value:
+        return None
+    cleaned = re.split(
+        r"\s{2,}|\bCOR\b",
+        value,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip()
+    return cleaned or None

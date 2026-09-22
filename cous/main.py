@@ -136,6 +136,7 @@ def main() -> None:
         config.opentracy,
         knowledge_token_provider,
         MeasurementLocalStore(expand_path(config.measurements.storage_file)),
+        systemos_config=config.systemos,
     )
     conversations = ConversationStore(expand_path(config.chat.conversations_dir))
     feedback_store = FeedbackStore(expand_path(config.feedback.storage_file))

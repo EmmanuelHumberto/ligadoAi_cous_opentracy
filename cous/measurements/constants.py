@@ -30,6 +30,8 @@ TYPE_ALIASES: dict[str, str] = {
     # Assinatura eletromecânica (COUS v3.0 — payload consolidado)
     "signature": "signature",
     "electromechanical_signature": "signature",
+    "electromechanical_observation_frame": "signature",
+    "electromechanical_correlation_frame": "signature",
     # Sensores magnéticos brutos (raw_lsb, raw_field_uT)
     "magnetic": "magnetic",
     "magnetic_snapshot": "magnetic",

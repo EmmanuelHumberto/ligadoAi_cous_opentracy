@@ -120,6 +120,7 @@ class TestExtractFields:
             "cel: (11) 99999-9999\n"
             "endereço: Rua das Máquinas\n"
             "ordem de serviço #001\n"
+            "n° de série: SN-001\n"
             "marca: FK Irons\n"
             "modelo: Phantom\n"
             "data de entrada: 01/01/2025\n"
@@ -129,6 +130,60 @@ class TestExtractFields:
         assert result["document_type"] == "service_order"
         extra = result["extra"]
         assert "equipment_brand" in extra
+        assert extra["service_order_number"] == "001"
+        assert extra["equipment_serial"] == "SN-001"
+
+    def test_service_order_preserves_compound_serial(self):
+        text = (
+            "cliente: Artefato Tattoo Supply\n"
+            "cnpj / cpf: 19.926.665/0001-03\n"
+            "cel: 31999323961\n"
+            "endereco: Avenida Afonso Pena\n"
+            "ordem de servico: 1119\n"
+            "numero de serie: EP10757 040523\n"
+        )
+
+        result = extract_metadata(text)
+
+        assert result["document_type"] == "service_order"
+        assert result["extra"]["service_order_number"] == "1119"
+        assert result["extra"]["equipment_serial"] == "EP10757 040523"
+
+    def test_service_order_serial_strips_adjacent_color_column(self):
+        text = (
+            "cliente: Matheus\n"
+            "cnpj / cpf: 123.456.789-00\n"
+            "cel: 31999999999\n"
+            "endereco: Rua das Maquinas\n"
+            "ordem de servico: 1125\n"
+            "n° de série: W1NP2403464                               COR: DOURADA\n"
+        )
+        result = extract_metadata(text)
+        assert result["extra"]["equipment_serial"] == "W1NP2403464"
+
+    def test_service_order_extracts_markdown_list_fields(self):
+        text = (
+            "# Ordem de Servico 1119\n\n"
+            "- Cliente: Artefato Tattoo Supply\n"
+            "- CNPJ / CPF: 19.926.665/0001-03\n"
+            "- Cel: 31999323961\n"
+            "- Endereco: Avenida Afonso Pena\n"
+            "- Ordem de servico: 1119\n"
+            "- Marca: AVA\n"
+            "- Modelo: EP10\n"
+            "- Numero de serie: EP10757 040523\n"
+            "- Data de entrada: 06/07/2026\n"
+            "- Tecnico responsavel: Selecione\n"
+        )
+
+        result = extract_metadata(text)
+        extra = result["extra"]
+
+        assert extra["equipment_brand"] == "AVA"
+        assert extra["equipment_model"] == "EP10"
+        assert extra["equipment_serial"] == "EP10757 040523"
+        assert extra["service_date"] == "06/07/2026"
+        assert extra["technician"] == "Selecione"
 
     def test_book_extracts_publisher(self):
         text = (

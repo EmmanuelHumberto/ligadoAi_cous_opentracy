@@ -29,6 +29,21 @@ def diagnosis_summary_rows(session: dict[str, Any]) -> list[tuple[str, str]]:
         rows.append(("Ultima tentativa", str(session["diagnosis_last_attempt_at"])))
     if session.get("diagnosis_error"):
         rows.append(("Erro diagnostico", str(session["diagnosis_error"])))
+    if session.get("diagnosis_callback_status"):
+        rows.append(
+            ("Entrega callback", str(session["diagnosis_callback_status"]))
+        )
+    if session.get("diagnosis_callback_attempts") is not None:
+        rows.append(
+            (
+                "Tentativas callback",
+                str(session["diagnosis_callback_attempts"]),
+            )
+        )
+    if session.get("diagnosis_callback_error"):
+        rows.append(
+            ("Erro callback", str(session["diagnosis_callback_error"]))
+        )
 
     primary = _primary_hypothesis(result.get("hypotheses") if isinstance(result, dict) else None)
     if primary:
@@ -38,6 +53,28 @@ def diagnosis_summary_rows(session: dict[str, Any]) -> list[tuple[str, str]]:
             rows.append(("Hipotese principal", f"{description} ({confidence})"))
         elif description:
             rows.append(("Hipotese principal", description))
+        if primary.get("diagnostic_kind"):
+            rows.append(("Modo diagnostico", str(primary["diagnostic_kind"])))
+        if primary.get("source") == "firmware_mode_correlation":
+            rows.append(("Origem", "Firmware + correlacao OpenTracy"))
+        if primary.get("active_now") is not None:
+            rows.append(
+                (
+                    "Estado atual",
+                    "ativo" if primary.get("active_now") else "inativo",
+                )
+            )
+        corroborating = primary.get("corroborating_knowledge_units")
+        if isinstance(corroborating, list):
+            rows.append(("Conhecimento corroborante", str(len(corroborating))))
+        limitations = primary.get("limitations")
+        if isinstance(limitations, list) and limitations:
+            rows.append(
+                (
+                    "Limitacoes",
+                    "; ".join(str(item) for item in limitations if str(item).strip()),
+                )
+            )
 
     explanation = result.get("explanation") if isinstance(result, dict) else None
     if isinstance(explanation, dict):

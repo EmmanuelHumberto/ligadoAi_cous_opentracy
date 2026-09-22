@@ -212,10 +212,10 @@ Baseado no algoritmo AHE (Lin et al., arxiv 2604.25850). Opera sobre traces reai
 | **Chat** | Envia texto + histórico para o agente |
 | **Contexto de medições** | Detecta termos de domínio e injeta resumo local no `request` |
 | **Memory local** | Janela 10, sumarização por tamanho (16K chars) + fallback local. **A partir da Fase A, o runtime é canônico para memória ativa (seção 11); o Cous mantém histórico apenas para offline, exportação e fallback.** |
-| **Captura serial** | TMA_DATA via `termios` — hall, power, course, vibration |
+| **Captura serial** | TMA_DATA via `termios` — snapshots brutos e frames eletromecanicos v2/v3 |
 | **Persistência local** | Conversas JSONL, medições JSON, índice de conversas |
 | **Sincronização** | Envia medições para o runtime |
-| **Diagnóstico/Laudo** | Remoto com fallback local |
+| **Diagnóstico/Laudo** | Remoto com fallback local e consolidacao temporal dos modos do firmware |
 | **Comandos knowledge** | `/indexar`, `/buscar`, `/validar`, `/remover` |
 | **Resiliência** | Escrita atômica, tolerância a JSONL corrompido, fallbacks |
 
@@ -226,6 +226,11 @@ Baseado no algoritmo AHE (Lin et al., arxiv 2604.25850). Opera sobre traces reai
 **Persistência local robusta.** JSONL + JSON com escrita atômica (`write-to-temp + fsync + os.replace`), índice de conversas para listagem rápida, sobrevive a reinicializações. A UI web não persiste conversas.
 
 **Resiliência operacional.** Fallback local para resumo, diagnóstico e laudo quando o runtime está offline.
+
+**Telemetria eletromecanica estruturada.** O COUS valida os contratos agregados
+do firmware, preserva perfil, fechamento, assinatura fisica e relacoes causais,
+e consolida temporalmente as hipoteses de falha. A semantica e os limites dessa
+integracao estao em [TELEMETRIA_ELETROMECANICA.md](TELEMETRIA_ELETROMECANICA.md).
 
 ---
 
@@ -293,7 +298,7 @@ A migração de JSONL → PostgreSQL deve ocorrer quando o volume de dados justi
 ┌─────────────────────────────────────────────────────────────┐
 │ Camada 1 — Aquisição Operacional (Cous)                     │
 │                                                             │
-│ • Captura serial TMA_DATA (hall, power, course, vibration)  │
+│ • Captura TMA_DATA bruta + observacao v2 + correlacao v3    │
 │ • Persistência local → PostgreSQL (memória operacional)     │
 │ • Terminal interativo                                       │
 │ • Sincronização com runtime                                 │

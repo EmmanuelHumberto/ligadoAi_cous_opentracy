@@ -23,6 +23,7 @@ class OpenTracyConfig(BaseModel):
     runtime_url: str = "http://127.0.0.1:8001"
     agent_id: str = "cous"
     timeout: int = 30
+    chat_timeout: int = 120
     diagnosis_domain_id: str = ""
     diagnosis_instance_id: str = ""
     diagnosis_callback_endpoint: str = "http://localhost:8000/cous/diagnosis/callback"
@@ -36,7 +37,7 @@ class OpenTracyConfig(BaseModel):
     def normalize_loopback_host(cls, value: str) -> str:
         return _normalize_loopback_url(value)
 
-    @field_validator("timeout")
+    @field_validator("timeout", "chat_timeout")
     @classmethod
     def positive_timeout(cls, value: int) -> int:
         return value if value > 0 else 30
@@ -64,6 +65,25 @@ class MemoryConfig(BaseModel):
 
 class MeasurementsConfig(BaseModel):
     storage_file: str = ".cous-data/measurements.json"
+
+
+class SystemOsConfig(BaseModel):
+    enabled: bool = False
+    base_url: str = "http://127.0.0.1:3001/api/v1"
+    organization_id: str = ""
+    api_key_env_var: str = "COUS_SYSTEMOS_TDMA_KEY"
+    api_key_file: str = "~/.cous/systemos_tdma_key"
+    timeout: int = 30
+
+    @field_validator("base_url")
+    @classmethod
+    def normalize_base_url(cls, value: str) -> str:
+        return _normalize_loopback_url(value).rstrip("/")
+
+    @field_validator("timeout")
+    @classmethod
+    def positive_timeout(cls, value: int) -> int:
+        return value if value > 0 else 30
 
 
 class ChatConfig(BaseModel):
@@ -101,6 +121,7 @@ class Config(BaseModel):
     auth: AuthConfig = AuthConfig()
     memory: MemoryConfig = MemoryConfig()
     measurements: MeasurementsConfig = MeasurementsConfig()
+    systemos: SystemOsConfig = SystemOsConfig()
     chat: ChatConfig = ChatConfig()
     mcp: MpcConfig = MpcConfig()
     logs: LogsConfig = Field(default_factory=LogsConfig)

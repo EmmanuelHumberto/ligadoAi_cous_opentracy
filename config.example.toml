@@ -3,6 +3,7 @@ backend_url = "http://127.0.0.1:8002"
 runtime_url = "http://127.0.0.1:8001"
 agent_id = "cous"
 timeout = 30
+chat_timeout = 120
 diagnosis_domain_id = ""
 diagnosis_instance_id = ""
 diagnosis_callback_endpoint = "http://localhost:8000/cous/diagnosis/callback"
@@ -39,6 +40,14 @@ backup_count = 3
 
 [measurements]
 storage_file = ".cous-data/measurements.json"
+
+[systemos]
+enabled = false
+base_url = "http://127.0.0.1:3001/api/v1"
+organization_id = ""
+api_key_env_var = "COUS_SYSTEMOS_TDMA_KEY"
+api_key_file = "~/.cous/systemos_tdma_key"
+timeout = 30
 
 [knowledge]
 poll_timeout_seconds = 120

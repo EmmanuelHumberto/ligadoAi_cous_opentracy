@@ -44,6 +44,7 @@ class OpenTracyClient:
         return self._auth.post(
             f"{self._backend_url}/v1/api/{self._config.agent_id}/chat",
             payload,
+            timeout=self._config.chat_timeout,
         )
 
     def list_tools(self) -> list[dict[str, Any]]:

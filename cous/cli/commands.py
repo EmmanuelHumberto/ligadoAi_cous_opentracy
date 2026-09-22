@@ -594,9 +594,15 @@ def _measurement_diagnostic(ctx: CommandContext, args: str) -> bool:
     correlation_id = str(diagnostic.get("correlation_id") or "")
     source = str(result.get("source") or "")
 
-    if status == "local_fallback":
+    if diagnostic.get("queue_status") == "local_fallback":
         error = str(diagnostic.get("error") or "diagnostico v3 indisponivel")
-        _route_msg(ctx, "warning", f"Diagnostico v3 nao enfileirado: {error}")
+        _route_msg(ctx, "warning", f"Diagnostico remoto nao enfileirado: {error}")
+        _route_msg(
+            ctx,
+            "info",
+            f"Diagnostico local: status={status}; "
+            f"{diagnostic.get('summary') or '-'}",
+        )
         if correlation_id:
             _route_msg(ctx, "info", f"correlation_id local={correlation_id}")
         return True
@@ -842,7 +848,12 @@ def _build_diagnosis_prompt(session: dict) -> str:
         t = snap.get("type", "desconhecido")
         type_counts[t] += 1
         if t not in exemplos:
-            exemplos[t] = {k: v for k, v in snap.items() if k not in ("type", "status", "version", "valid")}
+            exemplos[t] = {
+                k: v
+                for k, v in snap.items()
+                if k not in ("type", "status", "version", "valid")
+                and not isinstance(v, (dict, list))
+            }
     
     # Montar prompt
     parts = [
@@ -869,19 +880,30 @@ def _build_diagnosis_prompt(session: dict) -> str:
             else:
                 parts.append(f"    {k}: {v}")
     
-    # Relações da assinatura eletromecânica (Firmware v2)
-    for snap in snapshots:
-        if snap.get("type") == "electromechanical_signature" and "relations" in snap:
-            rels = snap["relations"]
-            parts.append("\nRelações observado vs referência (assinatura eletromecânica):")
-            for rel_name, rel_data in sorted(rels.items()):
-                if isinstance(rel_data, dict) and rel_data.get("valid"):
-                    obs = rel_data.get("obs", "?")
-                    ref = rel_data.get("ref", "?")
-                    err = rel_data.get("err", "?")
-                    conf = rel_data.get("conf", "?")
-                    parts.append(f"  {rel_name}: obs={obs} ref={ref} erro={err}‰ conf={conf}/1000")
-            break  # só uma assinatura por sessão
+    from cous.measurements.electromechanical import summarize_electromechanical
+
+    electromechanical = summarize_electromechanical(snapshots)
+    if electromechanical:
+        parts.append("\nCorrelacao eletromecanica do firmware:")
+        parts.append(
+            "  frames_observacao="
+            f"{electromechanical.get('observation_count', 0)} "
+            "frames_correlacao="
+            f"{electromechanical.get('correlation_count', 0)} "
+            "aderencia_media_permille="
+            f"{electromechanical.get('global_adherence_permille', '?')}"
+        )
+        for mode in electromechanical.get("modes") or []:
+            if mode.get("active_frames", 0) <= 0:
+                continue
+            temporal = "persistente" if mode.get("persistent") else "transitoria"
+            parts.append(
+                f"  {mode['id']}: assessment={mode['assessment']} "
+                f"estado={temporal} frames_ativos={mode['active_frames']} "
+                f"confianca_max={mode['confidence_permille_max']}/1000 "
+                f"fontes={mode['source_channels']} "
+                f"limitacao={mode['limitation']}"
+            )
     
     parts.append("\n---")
     parts.append("Com base nos dados acima e nos documentos técnicos indexados")
@@ -911,7 +933,7 @@ def _capture(ctx: CommandContext, args: str) -> bool:
     except ValueError as exc:
         _route_msg(ctx, "error", str(exc))
         _route_msg(ctx, "info",
-            "Uso: /capturar fabricante=FK modelo=Flux numero_serie=SN123 "
+            "Uso: /capturar os=1234 fabricante=FK modelo=Flux numero_serie=SN123 "
             "tipo_coleta=desempenho sistema_transmissao=direct porta_serial=/dev/ttyACM0 "
             "verticais=hall,power,course,vibration"
         )
@@ -977,6 +999,7 @@ def _capture(ctx: CommandContext, args: str) -> bool:
 
 def _parse_measurement_header_args(args: str) -> dict[str, Any]:
     allowed = {
+        "ordem_servico",
         "fabricante",
         "modelo",
         "numero_serie",
@@ -997,6 +1020,8 @@ def _parse_measurement_header_args(args: str) -> dict[str, Any]:
         "sem_serial",
     }
     aliases = {
+        "os": "ordem_servico",
+        "numero_os": "ordem_servico",
         "serie": "numero_serie",
         "serial": "numero_serie",
         "transmissao": "sistema_transmissao",
@@ -1064,6 +1089,7 @@ def _prompt_measurement_header(ctx: CommandContext | None = None) -> dict[str, A
         header["sem_serial"] = _prompt_bool("Criar sessao sem capturar agora?", current_sem_serial, ctx=ctx)
         _route_msg(ctx, "info",
             "Resumo: "
+            f"OS={header.get('ordem_servico') or '-'} "
             f"{header.get('fabricante') or '-'} {header.get('modelo') or '-'} "
             f"serie={header.get('numero_serie') or '-'} "
             f"coleta={header.get('tipo_coleta')} "
@@ -1079,6 +1105,11 @@ def _prompt_measurement_header(ctx: CommandContext | None = None) -> dict[str, A
 def _prompt_machine_header(previous: dict[str, Any] | None = None, *, ctx = None) -> dict[str, Any]:
     previous = previous or {}
     return {
+        "ordem_servico": _prompt(
+            "Ordem de servico",
+            str(previous.get("ordem_servico") or ""),
+            ctx=ctx,
+        ),
         "fabricante": _prompt("Fabricante", str(previous.get("fabricante") or "DKLAB"), ctx=ctx),
         "modelo": _prompt("Modelo", str(previous.get("modelo") or ""), ctx=ctx),
         "numero_serie": _prompt("Numero de serie", str(previous.get("numero_serie") or ""), ctx=ctx),

@@ -14,7 +14,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-
 # ── Firmware → Cous ──────────────────────────────────────────────────────
 
 class InstanceRefSchema(BaseModel):
@@ -81,6 +80,9 @@ class EvidenceItemSchema(BaseModel):
 
 
 class DiagnosisContextSchema(BaseModel):
+    service_order_number: str | None = None
+    equipment_serial_number: str | None = None
+    measurement_observations: str | None = None
     reported_problem: str | None = None
     instance_history_summary: str | None = None
 
@@ -117,6 +119,15 @@ class HypothesisResultSchema(BaseModel):
     confidence_breakdown: ConfidenceBreakdownSchema | None = None
     is_primary: bool = False
     causal_chain_id: UUID | None = None
+    source: str | None = None
+    diagnostic_kind: str | None = None
+    firmware_assessment: str | None = None
+    persistent: bool | None = None
+    active_now: bool | None = None
+    active_frames: int | None = Field(default=None, ge=0)
+    source_channels: str | None = None
+    limitations: list[str] = Field(default_factory=list)
+    corroborating_knowledge_units: list[UUID] = Field(default_factory=list)
 
 
 class ExplanationResultSchema(BaseModel):
