@@ -55,6 +55,7 @@ class SystemOsTelemetryClient:
         header = session.get("header") or {}
         service_order = str(header.get("ordem_servico") or "").strip()
         serial_number = str(header.get("numero_serie") or "").strip()
+        captured_at = str(session.get("created_at") or "").strip()
         frames = list(session.get("snapshots") or [])
         if not session_id:
             raise ClientError("Sessao COUS sem identificador")
@@ -89,6 +90,8 @@ class SystemOsTelemetryClient:
                 "chaveIdempotencia": f"cous:{session_id}:{index:04d}",
                 "frames": batch,
             }
+            if captured_at:
+                payload["recebidoEm"] = captured_at
             receipts.append(self._post_batch(payload, api_key))
         return {
             "status": "synced",

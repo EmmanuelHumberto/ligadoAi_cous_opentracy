@@ -36,6 +36,7 @@ def test_systemos_sends_frames_in_idempotent_batches(monkeypatch):
     receipt = client.sync_session(
         {
             "id": "med_test",
+            "created_at": "2026-09-25T01:05:30.216598+00:00",
             "header": {
                 "ordem_servico": "OS-1132",
                 "numero_serie": "SN-1",
@@ -55,3 +56,6 @@ def test_systemos_sends_frames_in_idempotent_batches(monkeypatch):
         "cous:med_test:0002",
     ]
     assert all(request.headers["x-tdma-key"] == "secret" for request in requests)
+    assert all(
+        payload["recebidoEm"] == "2026-09-25T01:05:30.216598+00:00" for payload in payloads
+    )
