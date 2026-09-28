@@ -92,6 +92,10 @@ class SystemOsTelemetryClient:
             }
             if captured_at:
                 payload["recebidoEm"] = captured_at
+            if str(header.get("tipo_coleta") or "").strip():
+                payload["tipoColeta"] = str(header["tipo_coleta"]).strip()
+            if str(header.get("observacoes") or "").strip():
+                payload["observacoesColeta"] = str(header["observacoes"]).strip()
             receipts.append(self._post_batch(payload, api_key))
         return {
             "status": "synced",

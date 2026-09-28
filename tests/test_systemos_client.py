@@ -41,6 +41,8 @@ def test_systemos_sends_frames_in_idempotent_batches(monkeypatch):
                 "ordem_servico": "OS-1132",
                 "numero_serie": "SN-1",
                 "porta_serial": "/dev/ttyACM0",
+                "tipo_coleta": "pos-reparo",
+                "observacoes": "Teste final apos manutencao",
             },
             "snapshots": frames,
         }
@@ -58,4 +60,8 @@ def test_systemos_sends_frames_in_idempotent_batches(monkeypatch):
     assert all(request.headers["x-tdma-key"] == "secret" for request in requests)
     assert all(
         payload["recebidoEm"] == "2026-09-25T01:05:30.216598+00:00" for payload in payloads
+    )
+    assert all(payload["tipoColeta"] == "pos-reparo" for payload in payloads)
+    assert all(
+        payload["observacoesColeta"] == "Teste final apos manutencao" for payload in payloads
     )
