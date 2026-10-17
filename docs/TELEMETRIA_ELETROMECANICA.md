@@ -132,3 +132,21 @@ As observacoes sao enviadas como `service_order_context`, com forca `weak` e
 papel epistemico `reported_context`. Elas podem corroborar a formulacao de uma
 hipotese, mas nao substituem medicao fisica nem confirmam isoladamente um modo
 de falha.
+
+
+## Observabilidade e barreiras temporais - 16/10/2026
+
+Frames V4 vazios, invalidos ou sem o modo conhecido interrompem sua sequencia.
+Um timestamp duplicado nao confirma persistencia; mudanca de sessao tambem
+reinicia a confirmacao. Um frame final sem hipotese desativa `active_now`.
+
+O consumidor respeita `closure.motor.rpm_observation_valid` e
+`rpm_power_coherent`. Rotor travado sem suporte nao e ativado, mesmo em dados
+V4 legados. Sobrecarga por corrente acima do limiar nominal continua valida;
+ausencia de sensores com corrente subnominal nao comprova movimento ausente.
+Frames e valores originais permanecem preservados no armazenamento local.
+
+Os casos de regressao incluem vazio entre dois frames ativos, ultimo frame
+vazio, frame invalido, modo desconhecido, repeticao e flags RPM legadas. A suite
+completa do Cous passou com 184 testes. A reconstrucao equivalente no OpenTracy
+parte dos snapshots completos e nao apenas das relacoes conhecidas.

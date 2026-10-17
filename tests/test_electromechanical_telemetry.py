@@ -83,6 +83,8 @@ def _correlation(
             "motor": {
                 "valid": True,
                 "rpm_mpu": 0,
+                "rpm_observation_valid": True,
+                "rpm_power_coherent": True,
                 "bemf_error_permille": 0,
                 "winding_resistance_error_permille": 0,
                 "rpm_error_permille": 0,
@@ -317,3 +319,34 @@ def _json(value: dict) -> str:
     import json
 
     return json.dumps(value, separators=(",", ":"))
+
+
+def test_empty_invalid_unknown_and_duplicate_frames_are_temporal_barriers():
+    active1 = _correlation(1_000_000, assessment=3)
+    active3 = _correlation(3_000_000, assessment=3)
+    for kind in ("empty", "invalid", "unknown"):
+        barrier = _correlation(2_000_000, assessment=3)
+        if kind == "empty": barrier["relations"] = []
+        if kind == "invalid": barrier["valid"] = False
+        if kind == "unknown": barrier["relations"][0]["id"] = "unknown_mode"
+        mode = summarize_electromechanical([active1, barrier, active3])["modes"][0]
+        assert mode["max_consecutive_frames"] == 1
+        assert mode["persistent"] is False
+    mode = summarize_electromechanical([active1, dict(active1)])["modes"][0]
+    assert mode["persistent"] is False
+    final = _correlation(4_000_000, assessment=3)
+    final["relations"] = []
+    mode = summarize_electromechanical([active1, active3, final])["modes"][0]
+    assert mode["active_now"] is False
+
+
+def test_legacy_rpm_default_zero_cannot_activate_rotor_lock():
+    frame=_correlation(1_000_000,assessment=3)
+    del frame['closure']['motor']['rpm_observation_valid']
+    assert summarize_electromechanical([frame])['modes']==[]
+    frame['relations'][0]['id']='motor_nominal_overload_hypothesis'
+    frame['relations'][0]['observed']=100
+    frame['relations'][0]['reference']=800
+    assert summarize_electromechanical([frame])['modes']==[]
+    frame['relations'][0]['observed']=900
+    assert summarize_electromechanical([frame])['modes'][0]['active_now'] is True

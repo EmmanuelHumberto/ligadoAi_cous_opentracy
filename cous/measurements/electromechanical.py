@@ -392,7 +392,14 @@ def _summarize_modes(correlations: list[dict[str, Any]]) -> list[dict[str, Any]]
             "last_active_timestamp_us": None,
         }
 
+    previous_session = None
     for frame in correlations:
+        session = str(frame.get("source_session_id") or "")
+        if session != previous_session:
+            for mode in state.values():
+                mode["current_streak"] = 0
+                mode["last_active_timestamp_us"] = None
+            previous_session = session
         relations = {
             item.get("id"): item
             for item in frame.get("relations", [])
@@ -400,7 +407,17 @@ def _summarize_modes(correlations: list[dict[str, Any]]) -> list[dict[str, Any]]
         }
         for mode_id, mode in state.items():
             relation = relations.get(mode_id)
-            valid = bool(relation and relation.get("valid") is True)
+            valid = bool(frame.get("valid") is True and frame.get("version") == CORRELATION_VERSION
+                         and relation and relation.get("valid") is True)
+            motor = _copy_mapping(_copy_mapping(frame.get("closure")).get("motor"))
+            rpm_supported = motor.get("rpm_observation_valid") is True and motor.get("rpm_power_coherent") is True
+            if mode_id == "locked_rotor_hypothesis" and not rpm_supported:
+                valid = False
+            if mode_id == "motor_nominal_overload_hypothesis" and not rpm_supported and relation:
+                observed, reference = relation.get("observed"), relation.get("reference")
+                if not (isinstance(observed, (int, float)) and isinstance(reference, (int, float))
+                        and reference > 0 and abs(observed) >= 0.9 * reference):
+                    valid = False
             assessment = _assessment(relation.get("assessment")) if valid else None
             active = assessment in {
                 RelationAssessment.SUSPECT,
@@ -418,7 +435,7 @@ def _summarize_modes(correlations: list[dict[str, Any]]) -> list[dict[str, Any]]
                 previous_timestamp_us = mode["last_active_timestamp_us"]
                 continuous = (
                     previous_timestamp_us is not None
-                    and timestamp_us >= previous_timestamp_us
+                    and timestamp_us > previous_timestamp_us
                     and timestamp_us - previous_timestamp_us
                     <= MAX_CONFIRMATION_GAP_US
                 )
