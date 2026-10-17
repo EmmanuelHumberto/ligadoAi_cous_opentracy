@@ -495,3 +495,8 @@ Ainda em aberto:
 
 - migração PostgreSQL (Fase F) e configuração do harness (Fase G) — consulte [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
 - a captura serial segue Linux-only por usar `termios`/`select`.
+
+
+### Diagnostico de uma OS atual
+
+Use `/diagnostico os 1141` para consultar diretamente o SystemOS, sem indexar uma copia da OS no OpenTracy. Consulte [o contrato e as limitacoes](docs/CONSULTA_DIRETA_SYSTEMOS.md).

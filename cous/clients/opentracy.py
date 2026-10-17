@@ -12,11 +12,14 @@ from cous.config import OpenTracyConfig
 
 
 class OpenTracyClient:
-    def __init__(self, config: OpenTracyConfig, token_provider: TokenProvider) -> None:
+    def __init__(self, config: OpenTracyConfig, token_provider: TokenProvider, *, diagnosis_token_provider: TokenProvider | None = None) -> None:
         self._config = config
         self._auth = AuthenticatedHttpClient(
             token_provider=token_provider,
             timeout=config.timeout,
+        )
+        self._diagnosis_auth = AuthenticatedHttpClient(
+            token_provider=diagnosis_token_provider or token_provider, timeout=config.timeout,
         )
         self._plain = httpx.Client(timeout=httpx.Timeout(config.timeout))
         self._backend_url = config.backend_url.rstrip("/")
@@ -47,6 +50,13 @@ class OpenTracyClient:
             timeout=self._config.chat_timeout,
         )
 
+    def diagnose_systemos(self, order: str) -> dict[str, Any]:
+        """Read the current OS through OpenTracy, without indexing a copy."""
+        return self._diagnosis_auth.post(
+            f"{self._runtime_url}/v3/systemos/diagnosis", {"order": order},
+            timeout=self._config.chat_timeout,
+        )
+
     def list_tools(self) -> list[dict[str, Any]]:
         data = self._auth.get(
             f"{self._backend_url}/v1/agents/{self._config.agent_id}/mcp/tools"
@@ -56,6 +66,7 @@ class OpenTracyClient:
 
     def close(self) -> None:
         self._auth.close()
+        self._diagnosis_auth.close()
         self._plain.close()
 
     def get_agent_config(self) -> dict[str, Any]:

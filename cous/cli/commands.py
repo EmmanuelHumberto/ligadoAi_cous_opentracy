@@ -112,7 +112,7 @@ def build_router() -> CommandRouter:
     router.register(
         "diagnostico",
         _measurement_diagnostic,
-        "Enfileira diagnostico no OpenTracy",
+        "Consulta /diagnostico os <numero> no SystemOS ou diagnostica uma coleta",
         aliases=["dg"],
     )
     router.register("comparar", _measurement_compare, "Compara duas medicoes e gera laudo comparativo", aliases=["cmp"])
@@ -572,6 +572,37 @@ def _measurement_report(ctx: CommandContext, args: str) -> bool:
 def _measurement_diagnostic(ctx: CommandContext, args: str) -> bool:
     """Enfileira diagnóstico remoto COUS v3 no OpenTracy."""
     parts = args.strip().split(maxsplit=1)
+    if (parts and parts[0].lower() == "os") or args.strip().isdigit():
+        order = parts[1].strip() if parts[0].lower() == "os" and len(parts) > 1 else args.strip()
+        if order.lower() == "os" or not order:
+            _route_msg(ctx, "error", "Uso: /diagnostico os <numero ou UUID>")
+            return True
+        _route_msg(ctx, "info", "Consultando a OS atual no SystemOS e analisando com o modelo do Windows...")
+        chat_session = ctx.session
+        try:
+            result = ctx.opentracy.diagnose_systemos(order)
+            text = f"OS #{result['order']} — consulta direta ao SystemOS\n\n"
+            if result.get("model"):
+                text += f"Modelo: {result['model']}\n\n"
+            text += result.get("conclusion") or "O modelo nao produziu uma conclusao com referencias validas."
+            text += "\n\n" + "\n".join(result.get("limitations", []))
+            if result.get("rejected_paragraphs"):
+                text += "\nResposta parcial: trechos sem referencias validas foram descartados."
+            text += f"\nConsulta: {result.get('consulted_at', '')} | Hash: {result.get('snapshot_hash', '')}"
+            if result.get("trace_id"):
+                text += f"\nRastreabilidade: {result['trace_id']}"
+                ctx.last_trace_id = result["trace_id"]
+            chat_session.add("user", f"/diagnostico os {order}")
+            chat_session.add("assistant", text)
+            if ctx.post_assistant:
+                ctx.post_assistant(text)
+            elif ctx.output_router:
+                ctx.output_router.assistant(text)
+            else:
+                renderer.assistant(text)
+        except (ClientError, ValueError, KeyError) as exc:
+            _route_msg(ctx, "error", str(exc))
+        return True
     if parts and parts[0].lower() in {"status", "resultado", "result"}:
         return _measurement_diagnostic_status(
             ctx,

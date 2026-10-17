@@ -130,7 +130,7 @@ def main() -> None:
         )
         return
 
-    opentracy = OpenTracyClient(config.opentracy, api_token_provider)
+    opentracy = OpenTracyClient(config.opentracy, api_token_provider, diagnosis_token_provider=knowledge_token_provider)
     knowledge = KnowledgeClient(config.opentracy, knowledge_token_provider)
     measurements = MeasurementsClient(
         config.opentracy,
